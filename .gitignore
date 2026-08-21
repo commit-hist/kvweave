@@ -1,0 +1,162 @@
+# Python bytecode
+
+**pycache**/
+*.py[cod]
+*$py.class
+
+# Native extensions
+
+*.so
+*.dylib
+*.dll
+
+# Packaging
+
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# pytest
+
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Type checking / linting
+
+.mypy_cache/
+.pyright/
+.ruff_cache/
+
+# Jupyter
+
+.ipynb_checkpoints/
+
+# IDEs
+
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+
+Thumbs.db
+Desktop.ini
+
+# Environment / secrets
+
+.env
+.env.*
+!.env.example
+
+# Logs
+
+*.log
+logs/
+
+# Temporary files
+
+tmp/
+temp/
+*.tmp
+
+# Benchmark outputs
+
+benchmarks/results/*
+!benchmarks/results/.gitkeep
+
+# Generated profiling output
+
+*.prof
+*.lprof
+*.trace
+*.nsys-rep
+*.qdrep
+
+# PyTorch / ML caches
+
+.torch/
+torch_cache/
+
+# Hugging Face caches
+
+.cache/
+huggingface/
+hf_cache/
+
+# Model checkpoints / large artifacts
+
+checkpoints/
+models/
+artifacts/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+
+# Dataset caches
+
+data/
+datasets/
+
+# Compiled CUDA / C++ extensions
+
+*.o
+*.obj
+*.a
+*.lib
+*.cubin
+*.fatbin
+*.ptx
+
+# CMake
+
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Rust, if added later
+
+target/
+
+# MLX / Metal generated artifacts
+
+*.metallib
+*.air
+
+# Local benchmark configuration
+
+benchmarks/local/
+
