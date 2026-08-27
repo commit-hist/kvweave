@@ -4,6 +4,151 @@ This document records the research provenance used by KVDB. Algorithmic ideas,
 observations from upstream implementations, and KVDB-authored code are kept
 separate so that attribution and licensing remain explicit.
 
+## PQCache
+
+### Sources and attribution
+
+- **Paper:** Hailin Zhang, Xiaodong Ji, Yilin Chen, Fangcheng Fu, Xupeng Miao,
+  Xiaonan Nie, Weipeng Chen, and Bin Cui, "PQCache: Product
+  Quantization-based KVCache for Long Context LLM Inference," *Proceedings of
+  the ACM on Management of Data* 3(3), Article 201, SIGMOD 2025.
+  [DOI 10.1145/3725338](https://doi.org/10.1145/3725338),
+  [arXiv 2407.12820v2](https://arxiv.org/abs/2407.12820v2).
+- **Official implementation:**
+  [HugoZHL/PQCache](https://github.com/HugoZHL/PQCache).
+- **Repository revision inspected:**
+  [`0b74e125207dc3f24da3bbaaf84e8a5f1d3b1828`](https://github.com/HugoZHL/PQCache/tree/0b74e125207dc3f24da3bbaaf84e8a5f1d3b1828)
+  (current `master` when inspected on 2026-08-26).
+
+The 30-page arXiv v2/SIGMOD paper was reviewed in full. Reported model-quality
+and latency results belong to the authors' model, hardware, workload, and
+runtime configuration. KVDB has not reproduced them and does not use them as a
+performance claim.
+
+### Standard product-quantization concepts
+
+Standard product quantization (PQ), attributed by the PQCache paper to Jégou,
+Douze, and Schmid (2011), divides a vector of dimension `D` into `M` disjoint,
+equal-dimensional subspaces. Each subspace has its own independently learned
+K-means codebook. A database vector is represented by one nearest-centroid ID
+per subspace. Its reconstructed vector is the concatenation of the selected
+centroids.
+
+For approximate raw inner-product search, a query is partitioned identically.
+For each subspace, a lookup table contains the query dot product with every
+centroid. The approximate score of an encoded database vector is the sum of
+the `M` table entries selected by that vector's codes. Ranking those approximate
+scores produces token candidates without reconstructing every vector. PQ does
+not intrinsically require an inverted index, a cache policy, CPU offload,
+GQA-specific aggregation, or an attention implementation.
+
+### Algorithm and policies described in the PQCache paper
+
+PQCache applies PQ independently to the keys of each transformer layer and KV
+head. For keys with per-head dimension `D`, the paper uses `M` subspaces of
+dimension `D / M`, `2**b` centroids per subspace, centroid tensor shape
+`[M, 2**b, D / M]`, and code shape `[S, M]` after omitting batch/head dimensions.
+At decode time it computes query-to-centroid inner products, gathers through
+the codes, sums subspace contributions, approximately ranks middle-context
+tokens, fetches the selected full-precision keys and values, and performs
+ordinary attention over the fetched set.
+
+The complete PQCache system adds runtime and inference policies that are not
+part of standard PQ:
+
+- full-precision initial (sink) and recent/local tokens are always included;
+- only middle-context tokens participate in approximate PQ Top-K retrieval;
+- newly generated tokens stay local, then receive codes when evicted from the
+  local window;
+- prefill KV offload and per-layer/per-head/per-subspace CPU clustering overlap
+  model computation;
+- an adaptive, hardware-profiled iteration cap attempts to hide clustering
+  behind prefill computation;
+- centroids remain on GPU while codes are prefetched layer by layer;
+- fetched full-precision KV can be served from a block-level LFU/LRU GPU cache;
+  and
+- GQA requires a policy for combining query-head evidence into a KV-head token
+  selection.
+
+Those policies materially affect the paper's end-to-end semantics and latency,
+but they are intentionally outside KVDB's Phase 2 reference-PQ experiment.
+
+### Behavior observed in the official repository
+
+The following observations describe revision `0b74e125...`; they are not a
+specification for KVDB and no source was copied:
+
+- The main runtime defaults to Euclidean K-means for each head/subspace and
+  uses centroid dot-product lookup tables for approximate token scoring. A
+  separate experimental inner-product mode uses a maximum-inner-product to
+  L2 augmentation.
+- The clustering workers use scikit-learn K-means with one initialization,
+  sampled input rows as initial centroids, a fixed environment-controlled seed
+  (default `4321`), Lloyd iterations, and an adaptive iteration limit clipped
+  to `[3, 300]` when the user does not provide one.
+- The adaptive runtime currently asserts batch size one. It accepts subspace
+  counts from `{1, 2, 4, 8, 16}` and requires GQA in its decode entry point.
+- In the Euclidean/GQA path, each query head produces approximate token logits;
+  the implementation applies softmax per query head, sums probabilities across
+  query heads sharing a KV head, and selects Top-K middle tokens per KV head.
+  Sink, recent, and current tokens are then concatenated outside that ranking.
+- The repository stores code tensors as `int64` in shared CPU/GPU buffers even
+  though the paper's memory analysis assumes logically packed `b`-bit codes.
+- Codebooks reserve additional capacity for generated tokens. Tokens receive
+  nearest-centroid codes when they leave the local window; the initial
+  codebooks are not retrained during ordinary short-output decoding.
+- The implementation includes CUDA/FlashAttention integration, multiprocessing
+  CPU clustering, cache management, model patches, GQA handling, dataset
+  evaluation, and timing overlap. None is needed to test KVDB's index/storage
+  boundary.
+
+### Repository licensing and provenance boundary
+
+Revision `0b74e125...` has **no top-level `LICENSE`, `COPYING`, or `NOTICE`
+file**, and GitHub reports no detected repository license. Publication of
+source code alone does not grant KVDB permission to copy, modify, or
+redistribute it. The paper's ACM publication notice is a publication license,
+not a software license for the repository.
+
+The upstream README also says code was borrowed from LongBench, H2O, InfLLM,
+SPARQ, and Hetu. The snapshot contains an embedded InfLLM tree with its own MIT
+license, a modified `sparq_official` tree with Graphcore copyright notices and
+some Transformers-derived files carrying Apache-2.0 notices, H2O/model-derived
+files without a uniform top-level notice, and a shared-memory helper explicitly
+marked as copied from an external gist. These file-level origins must not be
+collapsed into a single assumed license.
+
+Accordingly, KVDB will not copy or adapt any upstream PQCache source, including
+its PQ search/compressor, initialization details, multiprocessing code,
+GPU-cache manager, model patches, attention kernels, evaluation code, or
+third-party subtrees. Any future source reuse would require an explicit license
+from the relevant copyright holder plus a file-by-file provenance and notice
+audit. Phase 2 uses only independently written code based on the paper's
+mathematical description and standard PQ concepts.
+
+### KVDB independent reference implementation
+
+KVDB now has a deterministic, readable PyTorch reference with equal contiguous
+subspaces, bounded Lloyd-style K-means, explicit farthest-error reinitialization
+for empty clusters, nearest-centroid encoding, and raw-dot-product lookup-table
+scoring. It returns the existing token-level `Selection`, fetches through
+`TensorStorage`, and uses the existing reference attention. No upstream
+PQCache source was copied or adapted.
+
+The reference codebooks have shape `[B, Hkv, M, C, D / M]`, codes have shape
+`[B, Hkv, S, M]`, lookup tables have shape `[B, Hkv, M, C]`, and approximate
+token scores have shape `[B, Hkv, S]`. Codes use `int64` for readable PyTorch
+gather operations; benchmark output distinguishes those actual tensor bytes
+from a logical packed-bit estimate. Full-budget search returns every token
+exactly once and recovers full attention through the common storage path.
+
+It intentionally does not reproduce adaptive iteration scheduling, CPU/GPU
+offload, packed codes, the initial/local-token policy, incremental decode
+updates, GQA aggregation, GPU caching, FlashAttention, model integration,
+multiple processes, or the PQCache evaluation runtime. Its reconstruction and
+synthetic recall/error measurements are diagnostics for the KVDB architecture
+hypothesis, not a reproduction of PQCache's quality or performance results.
+
 ## Quest
 
 ### Sources and attribution

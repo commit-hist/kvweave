@@ -46,3 +46,32 @@ sets when page rounding selects extra tokens. Attention-output relative error is
 a synthetic tensor metric and must not be interpreted as generation quality.
 Timings cover readable PyTorch reference operations and do not justify speedup
 or backend-optimization claims.
+
+The Quest script also emits one fixed ragged-boundary regression for sequence
+length 65, page size 8, and requested budget 64. Its deterministic construction
+makes some batch/head rows select the one-token tail page and other rows exclude
+it. The result separately reports Quest search, `TensorStorage.fetch`, and
+mask-aware selected-attention latency. This preserves visibility into the
+accepted mask boundary; it is not an optimization benchmark.
+
+Run the Phase 2 PQ and equal-requested-budget Quest comparison with:
+
+```bash
+python benchmarks/scripts/pq_reference.py
+```
+
+The default deterministic synthetic matrix covers context lengths 64, 256, and
+1,024; requested token fractions 25%, 50%, and 100%; PQ subspace counts 2 and
+4; and centroid counts 4 and 8. Quest uses page size 8 by default. Each row
+reports requested and actual token counts, selected percentage, index build,
+retrieval, storage-fetch, and attention timings, candidate recall against exact
+raw-dot-product Top-K, and relative error against full attention. PQ rows also
+report key-reconstruction relative error as a diagnostic. Strategy parameters
+are recorded explicitly.
+
+PQ code storage is reported twice: actual bytes for the reference `int64` code
+tensor and a logical packed-code estimate using the minimum whole-bit width for
+the configured centroid count. Codebook storage reports actual tensor bytes.
+The reference does not implement bit packing. Quest/PQ Python timings describe
+different readable algorithms and must not be used to claim that either
+strategy is faster or better.

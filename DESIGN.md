@@ -529,6 +529,27 @@ Do not immediately integrate external ANN libraries unless necessary.
 
 The purpose of Phase 2 is to understand the algorithm and abstraction boundary.
 
+## Phase 2 reference evidence
+
+The independent PQ reference now partitions canonical keys `[B, Hkv, S, D]`
+into `M` equal contiguous subspaces, trains codebooks
+`[B, Hkv, M, C, D / M]`, and encodes keys as centroid IDs
+`[B, Hkv, S, M]`. Query lookup-table scoring produces approximate raw dot
+products `[B, Hkv, S]` and selects exactly the requested number of individual
+tokens per batch item and KV head.
+
+PQ operates through the existing `KVIndex.build/search -> Selection ->
+TensorStorage.fetch -> RetrievedKV -> reference attention` path. It required no
+changes to `KVIndex`, `Selection`, `KVStorage`, `RetrievedKV`, `KVCache`, or
+reference attention. Normal PQ selections have `valid_mask=None`; that is
+already the common representation for a rectangular, all-valid result. At full
+budget, PQ ranking is a permutation of every sequence token, so fetched
+attention reproduces full attention independently of quantization quality.
+
+This evidence is limited to deterministic synthetic reference behavior. It
+does not validate the complete PQCache system, model quality, packed-code
+memory savings, offload scheduling, GQA policy, or optimized latency.
+
 ---
 
 # 13. Retrieval Budget
@@ -1084,6 +1105,10 @@ Exit condition:
 Exit condition:
 
 > Quest and PQ operate through the same KVIndex interface.
+
+The reference implementation and synthetic end-to-end tests now satisfy this
+exit condition without modifying the shared interfaces. Model-level and
+optimized-runtime questions remain for later phases.
 
 ## Phase 3 — Model Integration
 

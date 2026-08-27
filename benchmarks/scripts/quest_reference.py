@@ -173,6 +173,96 @@ def make_tensors(
     return query, keys, values
 
 
+def run_ragged_regression(
+    *,
+    args: argparse.Namespace,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> None:
+    """Measure the accepted mask boundary for ``S=65`` and page size 8."""
+    context_length = 65
+    page_size = 8
+    requested_budget = 64
+    batch_size = 2
+    kv_heads = 2
+    keys = torch.zeros(
+        batch_size,
+        kv_heads,
+        context_length,
+        args.head_dim,
+        device=device,
+        dtype=dtype,
+    )
+    query = torch.ones(
+        batch_size,
+        kv_heads,
+        args.head_dim,
+        device=device,
+        dtype=dtype,
+    )
+    for batch_id in range(batch_size):
+        for head_id in range(kv_heads):
+            tail_value = 10.0 if (batch_id + head_id) % 2 == 0 else -10.0
+            keys[batch_id, head_id, -1] = tail_value
+    generator = torch.Generator(device=device).manual_seed(args.seed + 65_008)
+    values = torch.randn(
+        batch_size,
+        kv_heads,
+        context_length,
+        args.head_dim,
+        generator=generator,
+        device=device,
+        dtype=dtype,
+    )
+    quest = QuestIndex(page_size=page_size)
+    quest.build(keys)
+    storage = TensorStorage()
+    storage.put(keys, values)
+
+    search_ms, selection = median_latency_ms(
+        lambda: quest.search(query, requested_budget),
+        warmups=args.warmups,
+        repetitions=args.repetitions,
+        device=device,
+    )
+    if selection.valid_mask is None:
+        raise AssertionError("ragged Quest regression must produce a validity mask")
+    fetch_ms, retrieved = median_latency_ms(
+        lambda: storage.fetch(selection),
+        warmups=args.warmups,
+        repetitions=args.repetitions,
+        device=device,
+    )
+    if retrieved.valid_mask is None:
+        raise AssertionError("TensorStorage must preserve the ragged validity mask")
+    attention_ms, _ = median_latency_ms(
+        lambda: selected_attention(
+            query,
+            retrieved.keys,
+            retrieved.values,
+            retrieved.valid_mask,
+        ),
+        warmups=args.warmups,
+        repetitions=args.repetitions,
+        device=device,
+    )
+    counts = selection.valid_token_counts.to(torch.float32)
+    print("ragged_regression=quest_mask_boundary")
+    print(
+        "context_length,page_size,requested_token_budget,"
+        "actual_selected_tokens_min,actual_selected_tokens_max,"
+        "actual_selected_tokens_mean,masked_placeholder_count,"
+        "quest_search_ms,tensor_storage_fetch_ms,masked_selected_attention_ms"
+    )
+    print(
+        f"{context_length},{page_size},{requested_budget},"
+        f"{int(counts.min().item())},{int(counts.max().item())},"
+        f"{counts.mean().item():.3f},"
+        f"{int((~selection.valid_mask).sum().item())},"
+        f"{search_ms:.6f},{fetch_ms:.6f},{attention_ms:.6f}"
+    )
+
+
 def main() -> None:
     args = parse_args()
     validate_args(args)
@@ -293,6 +383,8 @@ def main() -> None:
                     f"{comparison_k},{recall:.6f},{full_attention_ms:.6f},"
                     f"{selected_attention_ms:.6f},{output_error:.8f}"
                 )
+
+    run_ragged_regression(args=args, device=device, dtype=dtype)
 
 
 if __name__ == "__main__":
