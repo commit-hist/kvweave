@@ -30,12 +30,12 @@ run = [
 
 [tasks."bench:brute-force"]
 description = "Run the brute-force reference benchmark through Pants"
-run = "pants run benchmarks/scripts:brute_force"
+run = "pants run benchmarks/scripts:brute_force --"
 
 [tasks."bench:quest"]
 description = "Run the Quest reference benchmark through Pants"
-run = "pants run benchmarks/scripts:quest_reference"
+run = "pants run benchmarks/scripts:quest_reference --"
 
 [tasks."bench:pq"]
 description = "Run the PQ reference benchmark through Pants"
-run = "pants run benchmarks/scripts:pq_reference"
+run = "pants run benchmarks/scripts:pq_reference --"

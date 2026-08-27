@@ -4,10 +4,15 @@ Benchmarks are first-class research code. These synthetic reference scripts
 validate measurement and correctness behavior; their numbers are not model
 quality evidence or performance claims.
 
+From the repository root, run `mise install` once to install the locked Python
+and Pants launcher. The benchmark tasks below delegate execution to Pants, which
+builds each benchmark's isolated environment from the repository dependency
+lockfile.
+
 Run the exact brute-force retrieval benchmark with:
 
 ```bash
-python benchmarks/scripts/brute_force.py
+mise run bench:brute-force
 ```
 
 The script uses deterministic synthetic inputs, runs warmups, and reports the
@@ -25,11 +30,16 @@ working tensor bytes, generated-token count, git commit, seed, warmup count, and
 measured repetitions. The memory figure is a transparent tensor-size estimate,
 not allocator or process peak memory. Use command-line flags to change workload
 values; do not compare runs unless all configuration and hardware details match.
+Pass benchmark flags after `--`, for example:
+
+```bash
+mise run bench:brute-force -- --context-lengths 128 512 --budget 64
+```
 
 Run the Phase 1 Quest reference benchmark with:
 
 ```bash
-python benchmarks/scripts/quest_reference.py
+mise run bench:quest
 ```
 
 It compares Quest page candidates with exact raw-dot-product Top-K retrieval and
@@ -57,7 +67,7 @@ accepted mask boundary; it is not an optimization benchmark.
 Run the Phase 2 PQ and equal-requested-budget Quest comparison with:
 
 ```bash
-python benchmarks/scripts/pq_reference.py
+mise run bench:pq
 ```
 
 The default deterministic synthetic matrix covers context lengths 64, 256, and
