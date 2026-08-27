@@ -116,3 +116,28 @@ The model-download validation test is separately opt-in:
 mise exec -- pants test tests/integration/test_pythia_real_model.py -- \
   -m model_download
 ```
+
+Run the Phase 3A structural-replication matrix with:
+
+```bash
+mise run bench:phase3a-replication
+```
+
+The default command writes the gitignored structured artifact
+`benchmarks/results/pythia-410m-phase3a-replication.json`. It retains the same
+pinned Pythia model, Transformers version, extraction semantics, retrieval
+rankings, and full-attention reconstruction as the accepted reference run. It
+expands the activation sample to eight locally authored text structures, exact
+lengths 512 and 2,048, four deterministic query positions, layers 0/12/23, all
+16 heads, the existing four partial/full budgets, Quest pages 16/64, and PQ
+M2/C4 and M4/C8 with eight iterations and seed zero.
+
+The result includes exact-attention entropy/support and Top-N mass, Quest page
+bound looseness, PQ score approximation error, per-head full-budget invariants,
+controlled configuration comparisons, descriptive correlations stratified by
+layer/budget, and a retrospective four-configuration oracle. The oracle is a
+diagnostic upper bound, not an adaptive policy. Candidate order is retained for
+retrieval diagnostics; selected token IDs are sorted into causal order before
+the mathematically permutation-invariant attention reduction so float32
+reduction order cannot create a false full-budget failure. The benchmark still
+makes no generation, downstream-quality, optimized-latency, or speed claim.

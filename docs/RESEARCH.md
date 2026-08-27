@@ -160,6 +160,271 @@ Quest ranking, PQ ranking, or storage. It weakens any assumption that synthetic
 average recall alone predicts real attention behavior. This phase makes no
 generation, perplexity, downstream-quality, or speed claim.
 
+## Pythia-410M Phase 3A structural replication
+
+### Replication methodology
+
+The follow-up retained the exact model, revision, `transformers==5.15.1`, eager
+attention, fused-QKV interpretation, partial-RoPE construction, causal slicing,
+raw-dot-product ranking, attention scale, Quest ranking, PQ ranking, bounded
+eight-iteration K-means, and seed zero described above. No external dataset was
+downloaded. The structured result is the gitignored local artifact
+`benchmarks/results/pythia-410m-phase3a-replication.json`.
+
+Eight independently tokenized local fixtures intentionally vary structure:
+
+| Fixture | Structural purpose |
+| --- | --- |
+| `repetitive_prose` | recurring nouns, verbs, and clause order |
+| `narrative_prose` | chronological characters, places, and changing events |
+| `technical_exposition` | definitions, causal claims, and numeric terms |
+| `code_like` | Python-like indentation, identifiers, branches, and literals |
+| `list_table` | labeled rows, delimiters, fields, and quantities |
+| `dialogue_qa` | alternating speakers and explicit questions/answers |
+| `mixed_sentence_lengths` | alternating very short and multi-clause sentences |
+| `symbolic_pattern` | cyclic markers, symbols, fields, and sparse changes |
+
+Each fixture is tokenized without special tokens, repeated independently, and
+truncated deterministically to exactly 512 and 2,048 tokens. The artifact
+records the authored text, base token count, repetition count, resulting token
+count, and token-ID SHA-256 for every fixture/length pair.
+
+Fractional queries use `ceil(sequence_length * fraction) - 1`, with the causal
+prefix including positions `0..t`. Exact positions and valid causal lengths are:
+
+| Captured length | 25% | 50% | 75% | Final |
+| ---: | ---: | ---: | ---: | ---: |
+| 512 | `t=127`, 128 tokens | `t=255`, 256 | `t=383`, 384 | `t=511`, 512 |
+| 2,048 | `t=511`, 512 tokens | `t=1023`, 1,024 | `t=1535`, 1,536 | `t=2047`, 2,048 |
+
+Every causal prefix evaluates layers 0, 12, and 23; all 16 heads; requested
+budgets 12.5%, 25%, 50%, and 100%; exact Top-K; Quest page sizes 16 and 64; and
+PQ `(M=2,C=4)` and `(M=4,C=8)`. The complete matrix contains 3,072 unique
+layer/head/query attention observations, 61,440 strategy/budget records, and
+15,360 per-head full-budget invariant records.
+
+### Diagnostic definitions
+
+- Attention entropy is Shannon entropy `-sum(p * ln(p))` of the exact
+  full-attention distribution, in natural-log units (nats).
+- Normalized entropy is entropy divided by `ln(S_causal)`.
+- Effective attention support is `exp(entropy)`, in effective-token units. A
+  one-hot distribution therefore has support one; a uniform distribution over
+  `S` tokens has support `S`.
+- Top-1/Top-4/Top-16 mass is the sum of the largest one/four/sixteen exact
+  attention probabilities.
+- Quest bound looseness is the Quest upper-bound page score minus the maximum
+  exact unscaled `q dot k` token score within that page. Means and maxima are
+  recorded separately for selected, non-selected, and all pages.
+- PQ score MAE/RMSE compare approximate and exact unscaled token scores.
+  Tie-aware Spearman correlation measures rank agreement. The exact top-token
+  score error and MAE restricted to the exact Top-16 tokens isolate errors on
+  the most important scores.
+- Candidate recall, attention mass, per-head relative output error, actual
+  candidate count, and full-budget coverage/mass/output invariants retain their
+  accepted meanings. No diagnostic is collapsed into a combined score.
+
+Natural entropy varies with valid prefix length, so empirical low/middle/high
+strata use terciles of normalized entropy across the 3,072 unique observations.
+The boundaries were `0.2739605` and `0.6143728`. These are descriptive strata,
+not universal sparsity thresholds.
+
+### Permutation-order correctness regression
+
+The first expanded run found a benchmark-evaluation issue, not an extraction or
+retrieval bug. For narrative prose at sequence length 2,048, query 50%, layer
+23/head 4, full-budget exact Top-K covered all 1,024 causal tokens and captured
+mass `1.000000119`, but strategy-ranked token order changed the float32 value
+reduction enough to produce maximum absolute residual `5.796e-4`, just outside
+the established `5e-4` bound. A diagnostic continuation also found PQ head 9
+with relative residual `1.270e-3` despite full coverage and mass one.
+
+Attention is mathematically invariant to candidate permutation. The benchmark
+now retains original strategy order for every ranking/candidate diagnostic but
+sorts the same valid selected token IDs into ascending causal order before the
+storage fetch and attention reduction. This removes non-semantic reduction
+order from the correctness check and partial-budget output comparison. A
+regression test covers masked/ragged selection canonicalization. No Q/K/V,
+RoPE, causality, attention, index, selection, storage, retrieved-KV, or cache
+implementation changed.
+
+All 192 independent full-causal reconstruction checks passed the original
+`rtol=1e-4, atol=1e-5`; the worst relative and absolute residuals were
+`1.0520e-6` and `4.5300e-6`. All 15,360 full-budget per-head invariants covered
+every causal token, captured mass within `1e-5` of one (observed range
+`0.99999845` to `1.00000250`), and matched canonical full reference attention
+exactly after ordering.
+
+### Attention sparsity and layer variability
+
+The pooled entropy distribution was broad: mean/median `2.692/3.070` nats,
+10th/25th/75th/90th percentiles `0.0109/0.7496/4.1646/4.9532`. Effective
+support had mean/median `52.47/21.55` tokens and 10th/25th/75th/90th
+percentiles `1.011/2.116/64.37/141.62` tokens. Pooled mean Top-1/Top-4/Top-16
+mass was `0.435/0.606/0.753`; the corresponding Top-16 10th/median/90th
+percentiles were `0.392/0.784/0.9999995`.
+
+| Layer | Entropy mean / median (nats) | Normalized entropy mean / median | Effective support mean / median | Top-1 / Top-4 / Top-16 mean mass |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 4.141 / 4.151 | 0.659 / 0.678 | 97.46 / 63.48 | 0.148 / 0.331 / 0.575 |
+| 12 | 3.372 / 3.369 | 0.533 / 0.545 | 56.74 / 29.05 | 0.339 / 0.527 / 0.694 |
+| 23 | 0.562 / 0.229 | 0.089 / 0.037 | 3.21 / 1.26 | 0.817 / 0.959 / 0.990 |
+
+Layer 23 is therefore qualitatively distinct across the expanded input set,
+not merely an average shift: its median exact attention distribution has only
+`1.26` effective tokens and Top-1 mass near one.
+
+### Retrieval results and layer-23 replication
+
+Partial-budget pooled means were:
+
+| Strategy/config | Budget | Recall | Attention mass | Relative output error |
+| --- | ---: | ---: | ---: | ---: |
+| Exact Top-K | 12.5% | 1.000 | 0.890 | 0.128 |
+| Exact Top-K | 25% | 1.000 | 0.945 | 0.069 |
+| Exact Top-K | 50% | 1.000 | 0.985 | 0.023 |
+| Quest p16 | 12.5% | 0.342 | 0.505 | 0.930 |
+| Quest p16 | 25% | 0.447 | 0.632 | 0.690 |
+| Quest p16 | 50% | 0.627 | 0.791 | 0.398 |
+| Quest p64 | 12.5% | 0.381 | 0.643 | 0.456 |
+| Quest p64 | 25% | 0.457 | 0.735 | 0.311 |
+| Quest p64 | 50% | 0.599 | 0.831 | 0.193 |
+| PQ M2/C4 | 12.5% | 0.280 | 0.305 | 1.442 |
+| PQ M2/C4 | 25% | 0.471 | 0.538 | 1.012 |
+| PQ M2/C4 | 50% | 0.673 | 0.769 | 0.600 |
+| PQ M4/C8 | 12.5% | 0.445 | 0.497 | 1.120 |
+| PQ M4/C8 | 25% | 0.568 | 0.665 | 0.788 |
+| PQ M4/C8 | 50% | 0.718 | 0.813 | 0.491 |
+
+At layer 23 and 12.5% budget, exact Top-K captured at least 90%, 95%, and 99%
+mass in `1,020/1,024`, `1,014/1,024`, and `993/1,024` observations. Across the
+four approximate configurations, attention mass was below 50%, 75%, and 90%
+in `2,633/4,096`, `2,728/4,096`, and `2,813/4,096` observations. Less-than-50%
+rates were Quest p16 `767/1,024`, Quest p64 `380/1,024`, PQ M2/C4 `766/1,024`,
+and PQ M4/C8 `720/1,024`.
+
+This behavior persisted in every text: exact Top-K reached 99% in 118 to 128
+of 128 observations per fixture, while approximate less-than-50% counts ranged
+from `250/512` for symbolic patterns to `371/512` for list/table text. Position
+dependence was smaller: approximate less-than-50% counts were `697/1,024` at
+25%, then `647`, `645`, and `644` at 50%, 75%, and final. Head specificity was
+large: head 12 fell below 50% in `232/256` approximate cases, while heads 8 and
+11 did so in `133/256`. Thus the late-layer effect is persistent and strongly
+head-specific, with real but secondary input and position dependence.
+
+At 12.5%, low-entropy-tercile heads were fragile for every configuration.
+Recall/mass/error were `0.175/0.335/1.952` for Quest p16,
+`0.244/0.706/0.509` for Quest p64, `0.185/0.275/2.290` for PQ M2/C4, and
+`0.243/0.334/2.138` for PQ M4/C8. High-entropy values were respectively
+`0.413/0.491/0.437`, `0.487/0.554/0.385`, `0.318/0.295/0.943`, and
+`0.547/0.535/0.594`. Low entropy consistently meant lower recall and larger
+output error, but not uniformly lower mass: coarse Quest pages often happened
+to include the critical sparse token and raised low-entropy mass. This supports
+the hypothesis that concentrated heads are cheap for an oracle but fragile for
+approximate ranking, without implying entropy alone selects a strategy.
+
+### Quest page size and bound quality
+
+Across 9,216 equal-requested-partial-budget comparisons, p16 versus p64 outcomes
+were recall `4,272/4,292/652`, mass `3,988/4,594/634`, and lower output error
+`4,376/4,295/545` (p16 better / p64 better / tie). Actual candidate counts were
+equal in 7,296 comparisons and differed due to page rounding in 1,920. Entropy
+strata reversed the tendency: p64 captured more mass in 1,608 versus 1,074
+low-entropy and 1,726 versus 1,198 high-entropy comparisons, whereas p16 won
+1,716 versus 1,260 middle-entropy comparisons. A fixed smaller page is not a
+reliable winner; coarse pages can help when important tokens are spatially
+co-selected, but actual candidate-count differences remain a confound.
+
+Absolute selected-page mean looseness increased sharply by layer. For p16 it
+was `76.3`, `150.8`, and `7,156.1` at layers 0/12/23; for p64 it was `98.9`,
+`202.6`, and `8,906.7`. Pooled descriptive correlations of selected-page mean
+looseness with recall/mass/error were `-0.469/-0.284/+0.322`, consistent with
+looser bounds harming retrieval. The within-layer-23 values were much weaker
+(`-0.149/-0.093/+0.077`), and layer 0 even reversed sign. Absolute score scale
+strongly confounds pooled results. Loose bounds contribute diagnostic signal
+but do not by themselves explain the late-layer failures or establish cause.
+
+### PQ capacity and score quality
+
+M4/C8 lowered key-reconstruction error in all 3,072 fixed
+text/length/query/layer/head comparisons. Across 9,216 partial-budget retrieval
+comparisons it improved recall `7,149` times (M2/C4 improved `1,855`, 212 ties),
+mass `7,016` times (`1,990`, 210 ties), and output error `6,421` times (`2,705`,
+90 ties). The advantage was strong in middle/high-entropy strata but much less
+consistent in the low-entropy stratum, where M4/C8 improved output error only
+`1,610/3,072` times.
+
+Mean reconstruction errors for M2/C4 versus M4/C8 were `0.600/0.505` at layer
+0, `0.270/0.230` at layer 12, and `0.118/0.108` at layer 23. Better global
+reconstruction did not guarantee better query scores: layer-23 score RMSE was
+`184.46` for M2/C4 and `196.49` for M4/C8, although Spearman agreement improved
+slightly from `0.201` to `0.216` and exact-Top-16 MAE improved from `192.42` to
+`184.07`.
+
+Pooled score-rank correlation related more strongly to recall/mass/error
+(`+0.647/+0.403/-0.436`) than score RMSE (`-0.458/-0.289/+0.287`). Exact
+top-token absolute score error related to mass/error at `-0.363/+0.437`.
+Reconstruction-error correlations were mixed or weak after stratifying by
+layer, demonstrating why pooled reconstruction correlations are not causal
+evidence. PQ score approximation, especially ordering and critical-token
+error, explains some failure better than global key reconstruction, but large
+unexplained per-head variation remains.
+
+### Correlations, fixed strategies, and policy evidence
+
+For all approximate partial-budget records, candidate-recall correlation with
+output error was `-0.398`, `-0.373`, and `-0.299` at 12.5%, 25%, and 50%.
+Attention-mass correlation was consistently stronger at `-0.647`, `-0.718`,
+and `-0.771`. The same ordering held within every tested layer at 12.5%.
+Attention mass remains the better diagnostic of output damage in this matrix.
+
+Pooled entropy correlations are confounded by layer: entropy versus
+recall/mass/error was `+0.417/+0.184/-0.363`, while within-layer associations
+were weaker and sometimes reversed. These are descriptive Pearson
+correlations, not causal estimates.
+
+No single approximate configuration won every head/query. At 12.5%, the best
+fixed mean-mass configuration was Quest p64 at `0.643`, while a retrospective
+per-head/query oracle over the same four configurations reached `0.763`. Mean
+output error fell from the best fixed `0.456` to oracle `0.242`. At layer 23
+alone, mass rose from `0.632` to `0.779` and error fell from `0.549` to `0.240`.
+All four configurations won at least 244 mass cases and 290 error cases in the
+pooled 3,072-observation comparison (ties included). This oracle is unavailable
+at runtime and ignores feature and switching cost. It supports a separate
+held-out policy-feasibility experiment, not adding an adaptive subsystem to the
+architecture yet.
+
+### Architecture result, limitations, and next experiment
+
+The expanded experiment required no change to `KVIndex`, `Selection`,
+`KVStorage`, `RetrievedKV`, or `KVCache`; it also required no change to model
+extraction, RoPE, causality, Quest ranking, PQ ranking, or reference attention.
+`DESIGN.md` therefore remains unchanged. The evidence strengthens the claim
+that one fixed approximate strategy/configuration is insufficient across these
+layers and heads, but is not yet enough to justify a production adaptive-policy
+interface.
+
+Limitations remain substantial: one 410M standard-MHA model; eight authored,
+deterministically repeated texts rather than natural corpora; only two captured
+lengths, four positions, and three layers; single-query activation analysis;
+tiny reference PQ configurations; no sink/local policy; no GQA; no decode or
+generation; no perplexity/downstream metric; no optimized kernel; no runtime or
+memory-cost comparison; absolute Quest looseness and PQ score errors are scale
+dependent; pooled correlations mix known confounders; and the retrospective
+oracle uses exact outcome labels unavailable to a real router.
+
+The exact proposed next experiment is a held-out Phase 3A policy-feasibility
+test, not decode integration: freeze these four configurations and budgets,
+use the current eight fixtures only as development data, author eight new
+unseen structural fixtures as a locked test set, and predict the best existing
+configuration per layer/head/query using only pre-retrieval features available
+without full attention or exact Top-K (layer/head ID, query/key norms, page-bound
+score dispersion, PQ approximate-score dispersion, and reconstruction error).
+Report held-out regret in attention mass and output error versus both the best
+fixed configuration and the unattainable retrospective oracle, plus feature
+and index costs. Do not add a public planner/policy interface unless that
+prospective held-out test recovers a material fraction of the oracle gap.
+
 ## PQCache
 
 ### Sources and attribution

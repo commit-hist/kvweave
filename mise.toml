@@ -43,3 +43,7 @@ run = "pants run benchmarks/scripts:pq_reference --"
 [tasks."bench:real-model"]
 description = "Run the opt-in Pythia real-activation reference benchmark"
 run = "pants run benchmarks/scripts:real_model_reference --"
+
+[tasks."bench:phase3a-replication"]
+description = "Run the multi-text, multi-position Pythia Phase 3A replication"
+run = "pants run benchmarks/scripts:phase3a_replication --"

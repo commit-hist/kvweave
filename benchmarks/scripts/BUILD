@@ -19,3 +19,8 @@ pex_binary(
     name="real_model_reference",
     entry_point="real_model_reference.py",
 )
+
+pex_binary(
+    name="phase3a_replication",
+    entry_point="phase3a_replication.py",
+)
