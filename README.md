@@ -38,20 +38,22 @@ model integration.
 
 ## Development
 
-Install the [Pants launcher](https://www.pantsbuild.org/stable/docs/getting-started/installing-pants),
-then use Pants for formatting, linting, testing, packaging, and benchmark entry
-points. Pants installs the pinned Ruff tool; no separate Ruff installation is
-required.
+Install [Mise](https://mise.jdx.dev/getting-started.html), then let it install
+Python and the Pants launcher declared by this repository. `pants.toml` pins the
+Pants version, and Pants installs the pinned Ruff tool, so neither Pants nor
+Ruff needs a separate project installation.
 
 ```bash
-pants fmt ::
-pants lint ::
-pants test ::
-pants package //:dist
-pants run benchmarks/scripts:brute_force
-pants run benchmarks/scripts:quest_reference
-pants run benchmarks/scripts:pq_reference
+mise install
+mise run fmt
+mise run check
+mise run package
+mise run bench:brute-force
+mise run bench:quest
+mise run bench:pq
 ```
+
+The underlying Pants commands remain available with `mise exec -- pants ...`.
 
 The brute-force script is a harness smoke test. The Quest script compares exact
 Top-K/full attention with page selection/selected attention on deterministic

@@ -296,9 +296,10 @@ Do not add abstractions solely because they might be useful later.
 Phase 1 is complete when a fresh checkout can:
 
 ```bash
-pants lint ::
-pants test ::
-pants run benchmarks/scripts:quest_reference
+mise install
+mise run lint
+mise run test
+mise run bench:quest
 ```
 
 and the benchmark compares:

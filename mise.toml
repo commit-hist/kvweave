@@ -1,0 +1,41 @@
+[tool_config]
+locked = true
+
+[tools]
+python = "3.11"
+scie-pants = { version = "0.13.2", bin = "pants" }
+
+[tasks.fmt]
+description = "Format Python and BUILD files with Ruff through Pants"
+run = "pants fmt ::"
+
+[tasks.lint]
+description = "Check Ruff formatting and lint rules through Pants"
+run = "pants lint ::"
+
+[tasks.test]
+description = "Run the complete test suite through Pants"
+run = "pants test ::"
+
+[tasks.package]
+description = "Build the KVDB wheel and source distribution through Pants"
+run = "pants package //:dist"
+
+[tasks.check]
+description = "Run all required code checks"
+run = [
+    { task = "lint" },
+    { task = "test" },
+]
+
+[tasks."bench:brute-force"]
+description = "Run the brute-force reference benchmark through Pants"
+run = "pants run benchmarks/scripts:brute_force"
+
+[tasks."bench:quest"]
+description = "Run the Quest reference benchmark through Pants"
+run = "pants run benchmarks/scripts:quest_reference"
+
+[tasks."bench:pq"]
+description = "Run the PQ reference benchmark through Pants"
+run = "pants run benchmarks/scripts:pq_reference"
