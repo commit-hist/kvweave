@@ -34,3 +34,8 @@ pex_binary(
     name="phase3a_policy_feasibility",
     entry_point="phase3a_policy_feasibility.py",
 )
+
+pex_binary(
+    name="phase3b_decode",
+    entry_point="phase3b_decode.py",
+)

@@ -36,6 +36,17 @@ It is intentionally not the complete PQCache runtime: there is no CPU offload,
 adaptive overlap policy, GQA aggregation, GPU cache, packed-code kernel, or
 model integration.
 
+## Phase 3B decode validation
+
+The pinned `EleutherAI/pythia-410m` experiment now performs dense prefill and an
+explicit stateful one-token decode loop. Custom dense decode matches Hugging
+Face greedy generation; Quest p64 and PQ M4/C8 both recover dense behavior at
+100% retrieval without changing the shared core interfaces. Partial-budget
+teacher-forced and free-running results, per-layer errors, reference timings,
+and memory accounting are recorded under the gitignored `benchmarks/results/`
+directory. These readable CPU measurements are not speed or downstream-quality
+claims.
+
 ## Development
 
 Install [Mise](https://mise.jdx.dev/getting-started.html), then let it install
@@ -51,6 +62,7 @@ mise run package
 mise run bench:brute-force
 mise run bench:quest
 mise run bench:pq
+mise run bench:phase3b-decode
 ```
 
 The underlying Pants commands remain available with `mise exec -- pants ...`.

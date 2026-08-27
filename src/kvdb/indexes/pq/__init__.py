@@ -4,6 +4,7 @@ from kvdb.indexes.pq.index import PQIndex
 from kvdb.indexes.pq.reference import (
     KMeansResult,
     PQMetadata,
+    append_pq_codes,
     build_pq_metadata,
     encode_keys,
     query_lookup_tables,
@@ -17,6 +18,7 @@ __all__ = [
     "KMeansResult",
     "PQIndex",
     "PQMetadata",
+    "append_pq_codes",
     "build_pq_metadata",
     "encode_keys",
     "query_lookup_tables",

@@ -4,6 +4,200 @@ This document records the research provenance used by KVDB. Algorithmic ideas,
 observations from upstream implementations, and KVDB-authored code are kept
 separate so that attribution and licensing remain explicit.
 
+## Pythia-410M Phase 3B autoregressive decode validation
+
+### Frozen boundary and decode architecture
+
+Phase 3B retains the exact Pythia-410M model revision
+`9879c9b5f8bea9051dcb0e68dff21493d67e9d4f`, Transformers 5.15.1 source
+revision `550d7b3834670483a4df436541272c055dc364bf`, fused-QKV interpretation,
+partial RoPE, attention scale `0.125`, Quest ranking, PQ ranking, and shared
+KVDB interfaces accepted in Phase 3A. The full gitignored structured result is
+`benchmarks/results/pythia-410m-phase3b-decode.json`; exact dense logits,
+per-layer attention outputs, residual streams, and cache lengths are stored in
+`benchmarks/results/pythia-410m-phase3b-dense-tensors.pt`, SHA-256
+`408c35d4b801bf8fb12b76bc66700d471bf13fa3c1d16ab52e54141decb7162e`.
+
+Dense prompt prefill runs through the pinned model and snapshots each layer's
+post-RoPE K and unchanged V. Every later token is executed explicitly through
+the model's existing embedding, layer norms, QKV projection, partial RoPE,
+attention output projection, parallel residual, MLP, final norm, and LM head.
+Hugging Face generation is not globally patched. The first generated token is
+selected from dense-prefill logits; a 32-token generation therefore contains
+31 one-token retrieval steps.
+
+At each layer, the current K/V entry is appended in causal order before search.
+Quest p64 rebuilds page metadata from the complete current key state at every
+step. PQ M4/C8 trains eight-iteration codebooks on dense-prefill keys, freezes
+those codebooks, and encodes each appended key against them. Encoding new
+database vectors against a trained quantizer is standard PQ behavior and also
+matches the previously documented upstream observation that ordinary short
+decode does not retrain initial codebooks. No PQCache source was copied.
+
+The integration force-includes the newest token, replacing the final ranked
+valid candidate only when it is absent, and then sorts valid token positions
+into causal order before storage fetch and attention. This is a reference
+runtime/Quest-inspired policy, not a mathematical necessity and not part of
+either index ranking. At 100%, it is a no-op because every token is present.
+
+The static development-derived layer/head table was deferred: mixing Quest and
+PQ independently per head would require both index families plus heterogeneous
+selection/fetch assembly, adding a second integration question to the A/B/C
+correctness gate. The failed learned query-adaptive predictor was not used and
+query-adaptive work remains parked.
+
+### Matrix and correctness gates
+
+The matrix uses four existing Phase 3A development fixtures: narrative prose,
+technical exposition, code-like text, and list/table text. Each is repeated and
+truncated with the pinned tokenizer to prompt lengths 256, 512, and 1,024. All
+12 cases generate 32 tokens without exceeding the model's 2,048-token limit.
+Quest p64 and PQ M4/C8 run at 25%, 50%, and 100% in teacher-forced and free-
+running modes. This yields 144 approximate runs and 4,464 approximate decode
+steps, with 372 steps per strategy/budget/mode cell.
+
+All 12 custom dense traces matched Hugging Face greedy token sequences and
+per-step logits exactly at `rtol=1e-4, atol=1e-5`; observed maximum absolute
+and relative logit differences were both zero. For each strategy, all 24 full-
+budget runs and 744 decode steps selected every valid causal KV token and
+included the newest token. Quest and PQ both had zero observed logit, attention-
+output, and residual-stream error against dense; attention-mass deviation from
+one was at most `2.5034e-6` from float32 summation.
+
+This answers the existential Phase 3B question positively: KVDB retrieval can
+operate in a stateful multi-token loop without architectural failure. Stateful
+decode required no change to `KVIndex`, `Selection`, `KVStorage`, `RetrievedKV`,
+or `KVCache`. The only strategy-specific addition is PQ code append against
+frozen codebooks; it does not change search ranking or the shared protocol.
+
+### Teacher-forced logit results
+
+Means below cover all 372 approximate decode steps in each cell. KL is
+`KL(dense || approximate)` in float32.
+
+| Strategy | Budget | Top-1 agreement | Top-5 overlap | Logit cosine | Logit relative error | Mean KL |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Quest p64 | 25% | 0.798 | 0.510 | 0.747 | 0.654 | 0.826 |
+| Quest p64 | 50% | 0.927 | 0.660 | 0.853 | 0.479 | 0.294 |
+| PQ M4/C8 | 25% | 0.868 | 0.497 | 0.734 | 0.687 | 0.533 |
+| PQ M4/C8 | 50% | 0.987 | 0.671 | 0.877 | 0.470 | 0.045 |
+| Quest/PQ | 100% | 1.000 | 1.000 | 1.000 | 0 | 0 |
+
+Increasing the budget from 25% to 50% improves every listed mean for both
+strategies. No one partial strategy dominates every diagnostic: Quest p64 has
+slightly lower 25% logit relative error and higher Top-5 overlap, while PQ has
+higher Top-1 agreement and lower KL at both budgets and is clearly stronger on
+50% logit metrics.
+
+### Free-running generation divergence
+
+| Strategy | Budget | No divergence | Mean token agreement | Mean longest common prefix |
+| --- | ---: | ---: | ---: | ---: |
+| Quest p64 | 25% | 1/12 | 0.299 | 6.33 tokens |
+| Quest p64 | 50% | 5/12 | 0.518 | 15.92 tokens |
+| PQ M4/C8 | 25% | 1/12 | 0.362 | 10.75 tokens |
+| PQ M4/C8 | 50% | 8/12 | 0.857 | 27.42 tokens |
+| Quest/PQ | 100% | 12/12 | 1.000 | 32.00 tokens |
+
+Quest 25% first divergences occurred at positions 2/3/4/5/6/8 (plus one no-
+divergence case); Quest 50% at 2/3/4/5/6/7 (plus five no-divergence cases).
+PQ 25% first divergences occurred at 2/6/7/8/9/12/31 (plus one no-divergence
+case); PQ 50% at 2/16/26/29 (plus eight no-divergence cases). Some paths later
+matched the dense token at individual positions, but this is not state
+reconvergence: free-running histories and KV states remain different.
+
+The gap between teacher-forced and free-running results is material. At 50%,
+PQ's mean top-1 agreement is `0.987` under dense-token inputs but free-running
+sequence agreement is `0.857`; Quest changes from `0.927` to `0.518`.
+Teacher forcing is therefore necessary to separate approximation-state damage
+from the amplification caused by consuming a different token history.
+
+### Attention, hidden-state, and compounding behavior
+
+Teacher-forced representative layer means were:
+
+| Strategy | Budget | Layer | Attention mass | Attention-output error | Residual-stream error |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Quest p64 | 25% | 0 / 12 / 23 | 0.675 / 0.725 / 0.792 | 0.315 / 0.705 / 1.121 | 0.107 / 0.640 / 1.098 |
+| Quest p64 | 50% | 0 / 12 / 23 | 0.829 / 0.846 / 0.845 | 0.189 / 0.464 / 0.682 | 0.064 / 0.430 / 0.695 |
+| PQ M4/C8 | 25% | 0 / 12 / 23 | 0.820 / 0.688 / 0.508 | 0.262 / 0.994 / 2.366 | 0.080 / 0.737 / 1.089 |
+| PQ M4/C8 | 50% | 0 / 12 / 23 | 0.951 / 0.877 / 0.661 | 0.083 / 0.539 / 1.482 | 0.032 / 0.334 / 0.657 |
+
+Residual error increases substantially from layer 0 through layer 23, directly
+showing error accumulation across layers. Layer 23 remains difficult and head-
+specific. Quest p64 captures much more layer-23 mass than PQ M4/C8 at both 25%
+(`0.792` versus `0.508`) and 50% (`0.845` versus `0.661`) and has much lower
+layer-23 attention-output error. Quest heads 15/7/1 had the lowest 25% layer-23
+mass; PQ heads 2/1/13 were lowest, with head 2 mean error `5.847`.
+
+Teacher-forced state error also grows across decode steps, although logit damage
+is not monotonic. From decode step 1 to 31, layer-23 residual error changes from
+`0.329` to `0.860` for Quest 25%, `0.192` to `0.525` for Quest 50%, `0.721` to
+`1.052` for PQ 25%, and `0.452` to `0.606` for PQ 50%. Corresponding logit
+relative error changes from `0.244` to `0.596`, `0.146` to `0.440`, `0.504` to
+`0.744`, and `0.365` to `0.449`. Free-running step-31 logit relative errors are
+larger still: `0.994/0.879/1.110/0.750` in the same order.
+
+Layer-23 attention-output error has moderate teacher-forced correlation with
+logit relative error for Quest (`0.459` at 25%, `0.601` at 50%) but weak
+correlation for PQ (`0.218`, `0.128`). Late-layer error is therefore predictive
+for some paths, not a complete strategy-independent explanation of logit
+divergence. These correlations pool fixtures, lengths, and steps and are
+descriptive only.
+
+### Reference timing and memory accounting
+
+All timing numbers are unoptimized CPU/Python means and identify work for later
+profiling; they are not speedups. Dense prefill means were `255.7`, `443.3`, and
+`1,033.0` ms for prompts 256/512/1,024. Dense decode-step means were `71.0`,
+`77.9`, and `82.0` ms at those prompt lengths.
+
+Across teacher-forced contexts and steps, total per-step reference costs summed
+over all 24 layers were:
+
+| Strategy | Budget | Update/rebuild ms | Search/policy ms | Fetch ms | Attention ms | Remaining model ms | Total ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Quest p64 | 25% | 17.60 | 14.05 | 6.94 | 8.09 | 66.20 | 112.88 |
+| Quest p64 | 50% | 18.45 | 16.65 | 8.94 | 11.16 | 69.12 | 124.31 |
+| PQ M4/C8 | 25% | 10.78 | 20.12 | 7.23 | 5.04 | 69.86 | 113.04 |
+| PQ M4/C8 | 50% | 9.84 | 21.47 | 7.94 | 6.27 | 69.13 | 114.64 |
+
+Quest initial reference index construction across all layers averaged
+`4.60/6.33/6.97` ms for prompt lengths 256/512/1,024. PQ prefill training and
+encoding averaged `2.73/4.94/6.87` seconds. Frozen-codebook append reduces PQ
+decode updates to roughly 10 ms per step across all layers; retraining at every
+step was neither required nor performed.
+
+At the final decode step for a 1,024-token prompt (causal length 1,055), dense
+KV is `197.812 MiB` across 24 layers. Quest metadata is `3.188 MiB`; selected KV
+is `56.765 MiB` at a requested 25% and `104.596 MiB` at 50%. Page rounding makes
+actual mean selected fractions `28.7%` and `52.9%` at this length (and as high
+as `40.2%/61.8%` at the 256-token prompt). PQ stores `12.363 MiB` of actual
+reference int64 codes, a `0.580 MiB` logical packed-code estimate, and `0.750
+MiB` of codebooks; selected KV is `49.5/99.0 MiB` at 25%/50%. These figures
+exclude allocator overhead and do not establish production memory savings.
+
+### Evidence decision and exact next experiment
+
+Phase 3B strengthens the central KVDB hypothesis: two distinct indexes retain
+one storage/selection/cache boundary through causal KV growth and multi-token
+state evolution, and both exactly recover dense decode at full budget. It also
+weakens any claim that a fixed partial budget is automatically generation-safe:
+errors compound across layers and steps, and free-running divergence can amplify
+otherwise high teacher-forced top-1 agreement.
+
+Phase 4 profiling is justified because the path is now correctness-gated and
+the reference breakdown exposes large, distinct costs. Backend optimization is
+not yet justified without profiling. The exact proposed next experiment is a
+preregistered profiling-only Phase 4 run using the unchanged pinned model,
+1024-token technical and code-like prompts, 32 teacher-forced decode tokens,
+Quest p64 and frozen-codebook PQ M4/C8 at 50% plus the 100% controls. Profile
+per-layer index update, search/policy, fetch, selected attention, and remaining
+model computation; record allocations and tensor traffic; then identify one
+measured bottleneck per strategy. Do not change retrieval semantics, add a
+backend, or claim speedup until those profiles select a target and a subsequent
+before/after benchmark preserves every Phase 3B correctness control.
+
 ## Pythia-410M Phase 3A activation validation
 
 ### Model, license, and dependency provenance

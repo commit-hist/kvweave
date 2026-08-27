@@ -7,6 +7,7 @@ from kvdb.indexes.pq.reference import (
     PQMetadata,
     _validate_positive_integer,
     _validate_seed,
+    append_pq_codes,
     build_pq_metadata,
     score_pq_codes,
 )
@@ -66,3 +67,8 @@ class PQIndex:
             top_indices = ranked_indices[..., :budget]
             top_scores = torch.gather(scores, dim=-1, index=top_indices)
         return Selection(indices=top_indices, scores=top_scores)
+
+    def append(self, new_keys: torch.Tensor) -> None:
+        """Encode new causal keys against the existing frozen codebooks."""
+        with torch.no_grad():
+            self._metadata = append_pq_codes(self.metadata, new_keys)

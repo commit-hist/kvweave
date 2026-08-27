@@ -347,6 +347,27 @@ def build_pq_metadata(
     )
 
 
+def append_pq_codes(
+    metadata: PQMetadata,
+    new_keys: torch.Tensor,
+) -> PQMetadata:
+    """Assign appended keys to frozen codebooks and extend PQ codes.
+
+    ``new_keys`` uses canonical shape ``[B, Hkv, Snew, D]``. The pre-existing
+    codebooks are intentionally reused rather than retrained; this is the
+    standard PQ operation of encoding new database vectors against a trained
+    quantizer. The returned metadata shares the immutable codebook tensor and
+    appends code IDs in causal sequence order.
+    """
+    new_codes = encode_keys(new_keys, metadata.codebooks)
+    return PQMetadata(
+        codebooks=metadata.codebooks,
+        codes=torch.cat((metadata.codes, new_codes), dim=2),
+        seed=metadata.seed,
+        max_iterations=metadata.max_iterations,
+    )
+
+
 def reconstruct_keys(metadata: PQMetadata) -> torch.Tensor:
     """Reconstruct approximate keys shaped ``[B, Hkv, S, D]``."""
     reconstructed_subspaces: list[torch.Tensor] = []

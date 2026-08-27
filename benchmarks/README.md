@@ -180,3 +180,46 @@ The workflow retains the exact pinned Pythia/Transformers extraction, RoPE,
 causal slicing, attention reconstruction, Quest, and PQ setup from structural
 replication. It reports policy regret and cost; it makes no decode, generation,
 downstream-quality, optimized-latency, or production-performance claim.
+
+## Phase 3B stateful decode validation
+
+Run the pinned Phase 3B matrix with:
+
+```bash
+mise run bench:phase3b-decode
+```
+
+The default command uses the existing narrative prose, technical exposition,
+code-like, and list/table development fixtures at prompt lengths 256, 512, and
+1,024. It generates 32 greedy tokens with the pinned Pythia-410M model and
+Transformers revision. The first token comes from dense-prefill logits; the
+remaining 31 positions execute explicit stateful decode retrieval. Quest p64
+and PQ M4/C8 are evaluated at 25%, 50%, and 100% in both teacher-forced and
+free-running modes.
+
+Quest rebuilds page metadata after each causal KV append. PQ trains codebooks
+on prefill keys, freezes them, and assigns appended keys to those existing
+codebooks. The integration force-includes the newest token when absent, then
+sorts selected token IDs into causal order before fetch/attention. This policy
+is outside both index rankings.
+
+The command refuses to continue a case if custom dense decode differs from
+Hugging Face or if either 100% path fails full selection or numerical equality.
+Its JSON result contains per-step logit/generation metrics, per-layer arrays of
+per-head mass/error/counts, residual-stream errors, timing, memory, provenance,
+and update policies. A sidecar PyTorch artifact stores exact dense logits,
+per-layer attention outputs, residual streams, and cache lengths. Both outputs
+are gitignored. The static layer/head table is intentionally deferred because
+heterogeneous per-head Quest/PQ assembly would add a separate integration
+problem; the failed learned policy is not used.
+
+The model-dependent decode tests remain opt-in:
+
+```bash
+mise exec -- pants test tests/integration/test_pythia_decode.py -- \
+  -m model_download
+```
+
+Ordinary pytest remains offline. Reference CPU timings identify possible future
+profiling targets only; they must not be interpreted as speedups or production
+memory savings.

@@ -8,9 +8,11 @@ This document describes the initial architecture for KVDB.
 
 The architecture is intentionally minimal and should evolve based on empirical results.
 
-Phase 2 synthetic validation is accepted. Phase 3 is split into activation-only
-validation before any decode integration so model evidence cannot be conflated
-with generation behavior or runtime performance.
+Phase 2 synthetic validation and Phase 3A real-activation validation are
+accepted. Phase 3B has now validated that the same abstraction can operate in
+a stateful multi-token decode loop. Its reference timing and approximation
+results remain correctness/diagnostic evidence, not optimized-runtime or model-
+quality claims.
 
 ---
 
@@ -721,6 +723,38 @@ Actual approximate decode/generation integration is Phase 3B. Phase 3A cannot
 support perplexity, downstream quality, generation-equivalence, end-to-end
 latency, or speedup claims.
 
+## Phase 3B evidence boundary
+
+The experimental GPT-NeoX decode runner performs dense Hugging Face prefill,
+then explicitly executes each one-token layer step using the model's existing
+embeddings, layer norms, fused QKV projection, partial RoPE, output projection,
+parallel residual, MLP, final norm, and LM head. Model-specific control remains
+under `integrations/transformers`; neither Hugging Face generation globally nor
+the model class is patched.
+
+Every layer retains canonical causal KV `[B, Hkv, S, D]`. After the new post-
+RoPE K and unchanged V are appended, Quest rebuilds its readable page metadata
+and PQ assigns the new key to the codebooks trained on dense-prefill keys.
+Those PQ codebooks remain frozen during decode. Both paths continue through the
+existing index, `Selection`, tensor storage, and retrieved-KV boundary. Stateful
+decode required no change to `KVIndex`, `Selection`, `KVStorage`, `RetrievedKV`,
+or `KVCache`.
+
+The integration, not either index, force-includes the newest token by replacing
+the final ranked candidate when necessary. It then sorts valid token IDs into
+causal order before storage fetch and attention. This is a reference runtime
+policy inspired by decode integrations, not a mathematical requirement or a
+change to Quest/PQ ranking.
+
+On the pinned Pythia-410M model, all custom dense traces matched Hugging Face
+greedy generation, and every 100% Quest/PQ decode step recovered every causal
+token and matched dense logits, attention outputs, residual streams, and token
+choices within the recorded tolerance. Partial budgets produced material,
+strategy-, layer-, head-, fixture-, and step-dependent errors; free-running
+divergence was substantially worse than teacher-forced disagreement. Phase 3B
+therefore validates the architectural capability, not the adequacy of any
+partial-retrieval quality policy.
+
 ---
 
 # 16. Benchmark Architecture
@@ -1153,12 +1187,20 @@ Exit condition:
 
 ## Phase 3B — Decode/Generation Integration
 
-* patch or adapt an actual decode path
-* generation equivalence and quality evaluation
-* end-to-end runtime measurement
+* complete: explicit one-token GPT-NeoX decode path after dense prefill
+* complete: dense/Hugging Face generation equivalence
+* complete: teacher-forced and free-running Quest/PQ evaluation
+* complete: reference timing and memory accounting
 
 Phase 3B must not inherit quality or speed claims from Phase 3A activation
 metrics.
+
+Exit evidence:
+
+> Stateful multi-token decode preserved the shared KVDB abstraction and exact
+> full-budget behavior. Partial retrieval errors can compound, so Phase 4 may
+> profile the proven path but must not assume that one fixed sparse setting is
+> quality-safe or choose an optimization backend without measurement.
 
 ## Phase 4 — Profiling
 
