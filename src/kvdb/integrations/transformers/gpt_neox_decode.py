@@ -26,6 +26,7 @@ from kvdb.integrations.transformers.gpt_neox import (
     split_gpt_neox_qkv,
     validate_gpt_neox_config,
 )
+from kvdb.profiling import profile_component, profile_context
 
 
 class DecodeMode(str, Enum):
@@ -74,10 +75,12 @@ def append_causal_kv(
     validate_kv_tensors(new_keys, new_values)
     if keys.shape[:2] + keys.shape[3:] != new_keys.shape[:2] + new_keys.shape[3:]:
         raise ValueError("new KV must match existing batch, heads, and head dimension")
-    return (
-        torch.cat((keys, new_keys), dim=2),
-        torch.cat((values, new_values), dim=2),
-    )
+    with profile_component("model.kv_cache_append"):
+        appended = (
+            torch.cat((keys, new_keys), dim=2),
+            torch.cat((values, new_values), dim=2),
+        )
+    return appended
 
 
 def prepare_decode_selection(
@@ -101,31 +104,33 @@ def prepare_decode_selection(
     if torch.any(selection.indices > newest_token_index).item():
         raise ValueError("selection contains a future token")
 
-    indices = selection.indices.clone()
-    scores = None if selection.scores is None else selection.scores.clone()
-    valid_mask = (
-        torch.ones_like(indices, dtype=torch.bool)
-        if selection.valid_mask is None
-        else selection.valid_mask.clone()
-    )
-    for batch_index in range(indices.shape[0]):
-        for head_index in range(indices.shape[1]):
-            row_mask = valid_mask[batch_index, head_index]
-            row_indices = indices[batch_index, head_index]
-            if torch.any(row_indices[row_mask] == newest_token_index).item():
-                continue
-            last_valid_position = int(row_mask.nonzero(as_tuple=False)[-1].item())
-            row_indices[last_valid_position] = newest_token_index
-            if scores is not None:
-                scores[batch_index, head_index, last_valid_position] = 0.0
+    with profile_component("policy.newest_token_inclusion"):
+        indices = selection.indices.clone()
+        scores = None if selection.scores is None else selection.scores.clone()
+        valid_mask = (
+            torch.ones_like(indices, dtype=torch.bool)
+            if selection.valid_mask is None
+            else selection.valid_mask.clone()
+        )
+        for batch_index in range(indices.shape[0]):
+            for head_index in range(indices.shape[1]):
+                row_mask = valid_mask[batch_index, head_index]
+                row_indices = indices[batch_index, head_index]
+                if torch.any(row_indices[row_mask] == newest_token_index).item():
+                    continue
+                last_valid_position = int(row_mask.nonzero(as_tuple=False)[-1].item())
+                row_indices[last_valid_position] = newest_token_index
+                if scores is not None:
+                    scores[batch_index, head_index, last_valid_position] = 0.0
 
-    sentinel = torch.full_like(indices, torch.iinfo(torch.int64).max)
-    sort_keys = torch.where(valid_mask, indices, sentinel)
-    order = torch.argsort(sort_keys, dim=-1, stable=True)
-    indices = torch.gather(indices, dim=-1, index=order)
-    valid_mask = torch.gather(valid_mask, dim=-1, index=order)
-    if scores is not None:
-        scores = torch.gather(scores, dim=-1, index=order)
+    with profile_component("policy.causal_reordering"):
+        sentinel = torch.full_like(indices, torch.iinfo(torch.int64).max)
+        sort_keys = torch.where(valid_mask, indices, sentinel)
+        order = torch.argsort(sort_keys, dim=-1, stable=True)
+        indices = torch.gather(indices, dim=-1, index=order)
+        valid_mask = torch.gather(valid_mask, dim=-1, index=order)
+        if scores is not None:
+            scores = torch.gather(scores, dim=-1, index=order)
     return Selection(
         indices=indices,
         scores=scores,
@@ -460,7 +465,7 @@ class GPTNeoXDecodeRunner:
         if not math.isfinite(budget_fraction) or not 0.0 < budget_fraction <= 1.0:
             raise ValueError("budget_fraction must be in (0, 1]")
         layers: list[DecodeLayerState] = []
-        for layer in snapshot.layers:
+        for layer_index, layer in enumerate(snapshot.layers):
             cache: KVCache | None = None
             build_time_ms = 0.0
             if strategy is DecodeStrategy.QUEST:
@@ -481,10 +486,11 @@ class GPTNeoXDecodeRunner:
             elif strategy is not DecodeStrategy.DENSE:
                 raise ValueError(f"unsupported strategy {strategy!r}")
             if cache is not None:
-                build_time_ms, _ = _timed(
-                    lambda: cache.build(layer.keys, layer.values),
-                    device=layer.keys.device,
-                )
+                with profile_context(phase="initialization", layer=layer_index):
+                    build_time_ms, _ = _timed(
+                        lambda: cache.build(layer.keys, layer.values),
+                        device=layer.keys.device,
+                    )
             layers.append(
                 DecodeLayerState(
                     keys=layer.keys,
@@ -587,29 +593,47 @@ class GPTNeoXDecodeRunner:
                 _synchronize(device)
                 layer_start = time.perf_counter()
                 layer_input = hidden_states
-                normalized = layer.input_layernorm(layer_input)
-                projected_qkv = layer.attention.query_key_value(normalized)
-                query, new_keys, new_values = split_gpt_neox_qkv(
-                    projected_qkv,
-                    num_attention_heads=self.architecture.num_attention_heads,
-                )
-                query, new_keys = apply_gpt_neox_rope(
-                    query,
-                    new_keys,
-                    cosine,
-                    sine,
-                )
-                layer_state.keys, layer_state.values = append_causal_kv(
-                    layer_state.keys,
-                    layer_state.values,
-                    new_keys,
-                    new_values,
-                )
+                layer_context = {
+                    "phase": "decode",
+                    "layer": layer_index,
+                }
+                with (
+                    profile_context(**layer_context),
+                    profile_component("model.layer_norm_residual"),
+                ):
+                    normalized = layer.input_layernorm(layer_input)
+                with (
+                    profile_context(**layer_context),
+                    profile_component("model.qkv_projection"),
+                ):
+                    projected_qkv = layer.attention.query_key_value(normalized)
+                with (
+                    profile_context(**layer_context),
+                    profile_component("model.rope_query_key_preparation"),
+                ):
+                    query, new_keys, new_values = split_gpt_neox_qkv(
+                        projected_qkv,
+                        num_attention_heads=(self.architecture.num_attention_heads),
+                    )
+                    query, new_keys = apply_gpt_neox_rope(
+                        query,
+                        new_keys,
+                        cosine,
+                        sine,
+                    )
+                with profile_context(**layer_context):
+                    layer_state.keys, layer_state.values = append_causal_kv(
+                        layer_state.keys,
+                        layer_state.values,
+                        new_keys,
+                        new_values,
+                    )
                 query_single = query[:, :, 0, :]
-                index_update_time_ms, _ = _timed(
-                    lambda: self._update_index(state, layer_state, new_keys),
-                    device=device,
-                )
+                with profile_context(**layer_context):
+                    index_update_time_ms, _ = _timed(
+                        lambda: self._update_index(state, layer_state, new_keys),
+                        device=device,
+                    )
 
                 selection: Selection | None = None
                 retrieval_time_ms = 0.0
@@ -643,14 +667,15 @@ class GPTNeoXDecodeRunner:
                             newest_token_index=layer_state.keys.shape[2] - 1,
                         )
 
-                    retrieval_time_ms, selection = _timed(
-                        retrieve_selection,
-                        device=device,
-                    )
-                    storage_fetch_time_ms, retrieved = _timed(
-                        lambda: layer_state.cache.storage.fetch(selection),
-                        device=device,
-                    )
+                    with profile_context(**layer_context):
+                        retrieval_time_ms, selection = _timed(
+                            retrieve_selection,
+                            device=device,
+                        )
+                        storage_fetch_time_ms, retrieved = _timed(
+                            lambda: layer_state.cache.storage.fetch(selection),
+                            device=device,
+                        )
                     retrieved_keys = retrieved.keys
                     retrieved_values = retrieved.values
                     retrieved_mask = retrieved.valid_mask
@@ -671,35 +696,71 @@ class GPTNeoXDecodeRunner:
                         ).item()
                     )
 
-                selected_attention_time_ms, attention = _timed(
-                    lambda: reference_attention(
-                        query_single,
-                        retrieved_keys,
-                        retrieved_values,
-                        valid_mask=retrieved_mask,
-                        scale=self.architecture.attention_scale,
-                    ),
-                    device=device,
-                )
+                with (
+                    profile_context(**layer_context),
+                    profile_component("model.selected_attention"),
+                ):
+                    selected_attention_time_ms, attention = _timed(
+                        lambda: reference_attention(
+                            query_single,
+                            retrieved_keys,
+                            retrieved_values,
+                            valid_mask=retrieved_mask,
+                            scale=self.architecture.attention_scale,
+                        ),
+                        device=device,
+                    )
                 if not isinstance(attention, ReferenceAttention):
                     raise RuntimeError("reference attention returned an invalid result")
-                attention_projection = layer.attention.dense(
-                    attention.output.reshape(1, 1, -1)
-                )
-                attention_projection = layer.post_attention_dropout(
-                    attention_projection
-                )
-                if layer.use_parallel_residual:
-                    mlp_output = layer.mlp(layer.post_attention_layernorm(layer_input))
-                    mlp_output = layer.post_mlp_dropout(mlp_output)
-                    hidden_states = mlp_output + attention_projection + layer_input
-                else:
-                    attention_residual = attention_projection + layer_input
-                    mlp_output = layer.mlp(
-                        layer.post_attention_layernorm(attention_residual)
+                with (
+                    profile_context(**layer_context),
+                    profile_component("model.attention_output_projection"),
+                ):
+                    attention_projection = layer.attention.dense(
+                        attention.output.reshape(1, 1, -1)
                     )
-                    mlp_output = layer.post_mlp_dropout(mlp_output)
-                    hidden_states = mlp_output + attention_residual
+                    attention_projection = layer.post_attention_dropout(
+                        attention_projection
+                    )
+                if layer.use_parallel_residual:
+                    with (
+                        profile_context(**layer_context),
+                        profile_component("model.layer_norm_residual"),
+                    ):
+                        post_attention_input = layer.post_attention_layernorm(
+                            layer_input
+                        )
+                    with (
+                        profile_context(**layer_context),
+                        profile_component("model.mlp"),
+                    ):
+                        mlp_output = layer.mlp(post_attention_input)
+                        mlp_output = layer.post_mlp_dropout(mlp_output)
+                    with (
+                        profile_context(**layer_context),
+                        profile_component("model.layer_norm_residual"),
+                    ):
+                        hidden_states = mlp_output + attention_projection + layer_input
+                else:
+                    with (
+                        profile_context(**layer_context),
+                        profile_component("model.layer_norm_residual"),
+                    ):
+                        attention_residual = attention_projection + layer_input
+                        post_attention_input = layer.post_attention_layernorm(
+                            attention_residual
+                        )
+                    with (
+                        profile_context(**layer_context),
+                        profile_component("model.mlp"),
+                    ):
+                        mlp_output = layer.mlp(post_attention_input)
+                        mlp_output = layer.post_mlp_dropout(mlp_output)
+                    with (
+                        profile_context(**layer_context),
+                        profile_component("model.layer_norm_residual"),
+                    ):
+                        hidden_states = mlp_output + attention_residual
                 _synchronize(device)
                 total_layer_time_ms = (time.perf_counter() - layer_start) * 1_000.0
                 accounted_time_ms = (

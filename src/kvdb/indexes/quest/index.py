@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import torch
 
 from kvdb.core.types import Selection, validate_keys, validate_query
+from kvdb.profiling import profile_component
 
 
 def _validate_page_size(page_size: int) -> None:
@@ -115,34 +116,41 @@ def build_page_metadata(keys: torch.Tensor, page_size: int) -> QuestMetadata:
     validate_keys(keys)
     _validate_page_size(page_size)
 
-    batch_size, kv_heads, sequence_length, head_dim = keys.shape
-    num_pages = (sequence_length + page_size - 1) // page_size
-    padded_length = num_pages * page_size
-    padding_length = padded_length - sequence_length
+    with profile_component("quest.metadata.page_reshape_padding"):
+        batch_size, kv_heads, sequence_length, head_dim = keys.shape
+        num_pages = (sequence_length + page_size - 1) // page_size
+        padded_length = num_pages * page_size
+        padding_length = padded_length - sequence_length
 
-    if padding_length:
-        padding_shape = (batch_size, kv_heads, padding_length, head_dim)
-        minimum_input = torch.cat(
-            [keys, keys.new_full(padding_shape, float("inf"))],
-            dim=2,
-        )
-        maximum_input = torch.cat(
-            [keys, keys.new_full(padding_shape, float("-inf"))],
-            dim=2,
-        )
-    else:
-        minimum_input = keys
-        maximum_input = keys
+        if padding_length:
+            padding_shape = (batch_size, kv_heads, padding_length, head_dim)
+            minimum_input = torch.cat(
+                [keys, keys.new_full(padding_shape, float("inf"))],
+                dim=2,
+            )
+            maximum_input = torch.cat(
+                [keys, keys.new_full(padding_shape, float("-inf"))],
+                dim=2,
+            )
+        else:
+            minimum_input = keys
+            maximum_input = keys
 
-    paged_shape = (batch_size, kv_heads, num_pages, page_size, head_dim)
-    minimum = minimum_input.reshape(paged_shape).amin(dim=3)
-    maximum = maximum_input.reshape(paged_shape).amax(dim=3)
-    return QuestMetadata(
-        minimum=minimum,
-        maximum=maximum,
-        page_size=page_size,
-        sequence_length=sequence_length,
-    )
+        paged_shape = (batch_size, kv_heads, num_pages, page_size, head_dim)
+        minimum_pages = minimum_input.reshape(paged_shape)
+        maximum_pages = maximum_input.reshape(paged_shape)
+    with profile_component("quest.metadata.page_minimum"):
+        minimum = minimum_pages.amin(dim=3)
+    with profile_component("quest.metadata.page_maximum"):
+        maximum = maximum_pages.amax(dim=3)
+    with profile_component("quest.metadata.object_construction"):
+        metadata = QuestMetadata(
+            minimum=minimum,
+            maximum=maximum,
+            page_size=page_size,
+            sequence_length=sequence_length,
+        )
+    return metadata
 
 
 def score_pages(query: torch.Tensor, metadata: QuestMetadata) -> torch.Tensor:
@@ -153,10 +161,18 @@ def score_pages(query: torch.Tensor, metadata: QuestMetadata) -> torch.Tensor:
     summed over the final feature dimension ``D``.
     """
     validate_query(query, metadata.minimum)
-    query_by_page = query.unsqueeze(2)
-    minimum_contribution = query_by_page * metadata.minimum
-    maximum_contribution = query_by_page * metadata.maximum
-    return torch.maximum(minimum_contribution, maximum_contribution).sum(dim=-1)
+    with profile_component("quest.search.query_expansion"):
+        query_by_page = query.unsqueeze(2)
+    with profile_component("quest.search.min_max_score"):
+        minimum_contribution = query_by_page * metadata.minimum
+        maximum_contribution = query_by_page * metadata.maximum
+        maximum_contribution = torch.maximum(
+            minimum_contribution,
+            maximum_contribution,
+        )
+    with profile_component("quest.search.dimension_reduction"):
+        scores = maximum_contribution.sum(dim=-1)
+    return scores
 
 
 def token_budget_to_pages(
@@ -217,42 +233,54 @@ def expand_pages_to_tokens(
         if page_scores.device != page_indices.device:
             raise ValueError("page_scores and page_indices must share a device")
 
-    offsets = torch.arange(
-        metadata.page_size,
-        dtype=torch.int64,
-        device=page_indices.device,
-    )
-    expanded = page_indices.unsqueeze(-1) * metadata.page_size + offsets
-    valid_mask = expanded < metadata.sequence_length
-    safe_indices = torch.where(valid_mask, expanded, torch.zeros_like(expanded))
+    with profile_component("quest.expand.page_expansion"):
+        offsets = torch.arange(
+            metadata.page_size,
+            dtype=torch.int64,
+            device=page_indices.device,
+        )
+        expanded = page_indices.unsqueeze(-1) * metadata.page_size + offsets
+    with profile_component("quest.expand.partial_page_handling"):
+        valid_mask = expanded < metadata.sequence_length
+        safe_indices = torch.where(valid_mask, expanded, torch.zeros_like(expanded))
 
-    flattened_indices = safe_indices.flatten(start_dim=2)
-    flattened_mask = valid_mask.flatten(start_dim=2)
-    # Stable compaction keeps page-rank and in-page order while moving masked
-    # tail-page slots behind every real token.
-    compact_order = torch.argsort(
-        flattened_mask.to(torch.int8),
-        dim=-1,
-        descending=True,
-        stable=True,
-    )
-    compacted_indices = torch.gather(flattened_indices, dim=-1, index=compact_order)
-    compacted_mask = torch.gather(flattened_mask, dim=-1, index=compact_order)
-    max_valid_tokens = int(compacted_mask.sum(dim=-1).max().item())
-    compacted_indices = compacted_indices[..., :max_valid_tokens]
-    compacted_mask = compacted_mask[..., :max_valid_tokens]
+    with profile_component("quest.expand.validity_mask_handling"):
+        flattened_indices = safe_indices.flatten(start_dim=2)
+        flattened_mask = valid_mask.flatten(start_dim=2)
+        # Stable compaction keeps page-rank and in-page order while moving masked
+        # tail-page slots behind every real token.
+        compact_order = torch.argsort(
+            flattened_mask.to(torch.int8),
+            dim=-1,
+            descending=True,
+            stable=True,
+        )
+        compacted_indices = torch.gather(
+            flattened_indices,
+            dim=-1,
+            index=compact_order,
+        )
+        compacted_mask = torch.gather(flattened_mask, dim=-1, index=compact_order)
+        max_valid_tokens = int(compacted_mask.sum(dim=-1).max().item())
+        compacted_indices = compacted_indices[..., :max_valid_tokens]
+        compacted_mask = compacted_mask[..., :max_valid_tokens]
 
     token_scores: torch.Tensor | None = None
     if page_scores is not None:
-        expanded_scores = page_scores.unsqueeze(-1).expand_as(expanded)
-        flattened_scores = expanded_scores.flatten(start_dim=2)
-        token_scores = torch.gather(flattened_scores, dim=-1, index=compact_order)
-        token_scores = token_scores[..., :max_valid_tokens]
-        token_scores = torch.where(
-            compacted_mask,
-            token_scores,
-            torch.zeros_like(token_scores),
-        )
+        with profile_component("quest.expand.page_score_expansion"):
+            expanded_scores = page_scores.unsqueeze(-1).expand_as(expanded)
+            flattened_scores = expanded_scores.flatten(start_dim=2)
+            token_scores = torch.gather(
+                flattened_scores,
+                dim=-1,
+                index=compact_order,
+            )
+            token_scores = token_scores[..., :max_valid_tokens]
+            token_scores = torch.where(
+                compacted_mask,
+                token_scores,
+                torch.zeros_like(token_scores),
+            )
 
     return Selection(
         indices=compacted_indices,
@@ -307,18 +335,20 @@ class QuestIndex:
 
         with torch.no_grad():
             all_page_scores = score_pages(query, metadata)
-            ranked_page_indices = torch.argsort(
-                all_page_scores,
-                dim=-1,
-                descending=True,
-                stable=True,
-            )
-            page_indices = ranked_page_indices[..., :pages_to_select]
-            selected_page_scores = torch.gather(
-                all_page_scores,
-                dim=-1,
-                index=page_indices,
-            )
+            with profile_component("quest.search.page_ranking"):
+                ranked_page_indices = torch.argsort(
+                    all_page_scores,
+                    dim=-1,
+                    descending=True,
+                    stable=True,
+                )
+            with profile_component("quest.search.page_id_handling"):
+                page_indices = ranked_page_indices[..., :pages_to_select]
+                selected_page_scores = torch.gather(
+                    all_page_scores,
+                    dim=-1,
+                    index=page_indices,
+                )
             selection = expand_pages_to_tokens(
                 page_indices,
                 metadata,

@@ -223,3 +223,32 @@ mise exec -- pants test tests/integration/test_pythia_decode.py -- \
 Ordinary pytest remains offline. Reference CPU timings identify possible future
 profiling targets only; they must not be interpreted as speedups or production
 memory savings.
+
+## Phase 4 fixed decode profile
+
+Run the frozen Phase 4 profile with:
+
+```bash
+mise run bench:phase4-profile
+```
+
+The command intentionally has no matrix-expansion flags. It runs only the
+pinned Pythia-410M CPU/float32/eager path, exact 1,024-token
+`technical_exposition` and `code_like` fixtures, 32 generated-token positions
+with 31 teacher-forced decode steps, Quest p64 and PQ M4/C8 at 50% and 100%,
+plus the dense baseline. Every measured path follows a complete uninstrumented
+warmup replay and must match that replay exactly. Dense/Hugging Face and 100%
+controls are mandatory.
+
+The gitignored JSON artifact is
+`benchmarks/results/pythia-410m-phase4-profile.json`. It contains raw
+per-step/per-layer component records, medians/p90/p95, call counts, initialization
+distributions, allocation and logical tensor-traffic estimates, matched dense
+comparisons, correctness/quality checks, bottleneck rankings, and the exact
+selected target for each strategy. Separate PyTorch-profiler traces for one
+representative final dense, Quest 50%, and PQ 50% step are written under
+`benchmarks/results/profile/pythia-410m-phase4/` and must not be committed.
+
+Phase 4 does not optimize either strategy or choose an implementation backend.
+Its timings are measurements of the readable reference path on the recorded
+machine/thread configuration, not speedup claims.

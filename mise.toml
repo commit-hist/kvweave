@@ -71,3 +71,7 @@ run = "pants run benchmarks/scripts:phase3a_policy_feasibility -- evaluate"
 [tasks."bench:phase3b-decode"]
 description = "Run pinned Pythia stateful autoregressive decode validation"
 run = "pants run benchmarks/scripts:phase3b_decode --"
+
+[tasks."bench:phase4-profile"]
+description = "Profile the frozen Pythia Phase 4 teacher-forced decode matrix"
+run = "pants run benchmarks/scripts:phase4_profile --"

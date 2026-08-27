@@ -39,3 +39,8 @@ pex_binary(
     name="phase3b_decode",
     entry_point="phase3b_decode.py",
 )
+
+pex_binary(
+    name="phase4_profile",
+    entry_point="phase4_profile.py",
+)

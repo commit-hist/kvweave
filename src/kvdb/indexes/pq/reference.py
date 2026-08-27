@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import torch
 
 from kvdb.core.types import validate_keys
+from kvdb.profiling import profile_component
 
 
 def _validate_positive_integer(value: int, *, name: str) -> None:
@@ -190,32 +191,35 @@ def train_codebooks(
     )
     batch_size, kv_heads, sequence_length, head_dim = keys.shape
     subspace_dimension = head_dim // num_subspaces
-    subvectors = keys.reshape(
-        batch_size,
-        kv_heads,
-        sequence_length,
-        num_subspaces,
-        subspace_dimension,
-    )
-    codebooks = keys.new_empty(
-        batch_size,
-        kv_heads,
-        num_subspaces,
-        num_centroids,
-        subspace_dimension,
-    )
+    with profile_component("pq.init.subspace_split"):
+        subvectors = keys.reshape(
+            batch_size,
+            kv_heads,
+            sequence_length,
+            num_subspaces,
+            subspace_dimension,
+        )
+    with profile_component("pq.init.codebook_allocation"):
+        codebooks = keys.new_empty(
+            batch_size,
+            kv_heads,
+            num_subspaces,
+            num_centroids,
+            subspace_dimension,
+        )
 
     group_id = 0
     for batch_id in range(batch_size):
         for head_id in range(kv_heads):
             for subspace_id in range(num_subspaces):
-                result = train_kmeans(
-                    subvectors[batch_id, head_id, :, subspace_id, :],
-                    num_centroids=num_centroids,
-                    max_iterations=max_iterations,
-                    seed=seed + group_id,
-                )
-                codebooks[batch_id, head_id, subspace_id] = result.centroids
+                with profile_component("pq.init.kmeans_training"):
+                    result = train_kmeans(
+                        subvectors[batch_id, head_id, :, subspace_id, :],
+                        num_centroids=num_centroids,
+                        max_iterations=max_iterations,
+                        seed=seed + group_id,
+                    )
+                    codebooks[batch_id, head_id, subspace_id] = result.centroids
                 group_id += 1
     return codebooks
 
@@ -250,18 +254,22 @@ def encode_keys(keys: torch.Tensor, codebooks: torch.Tensor) -> torch.Tensor:
     if codebooks.device != keys.device:
         raise ValueError("keys and codebooks must be on the same device")
 
-    subvectors = keys.reshape(
-        batch_size,
-        kv_heads,
-        sequence_length,
-        num_subspaces,
-        subspace_dimension,
-    )
-    working_subvectors = subvectors.to(_working_dtype(keys.dtype))
-    working_codebooks = codebooks.to(_working_dtype(codebooks.dtype))
-    differences = working_subvectors.unsqueeze(-2) - working_codebooks.unsqueeze(2)
-    distances = (differences * differences).sum(dim=-1)
-    return distances.argmin(dim=-1).to(torch.int64)
+    with profile_component("pq.encode.subspace_split"):
+        subvectors = keys.reshape(
+            batch_size,
+            kv_heads,
+            sequence_length,
+            num_subspaces,
+            subspace_dimension,
+        )
+        working_subvectors = subvectors.to(_working_dtype(keys.dtype))
+        working_codebooks = codebooks.to(_working_dtype(codebooks.dtype))
+    with profile_component("pq.encode.centroid_distance"):
+        differences = working_subvectors.unsqueeze(-2) - working_codebooks.unsqueeze(2)
+        distances = (differences * differences).sum(dim=-1)
+    with profile_component("pq.encode.centroid_assignment"):
+        codes = distances.argmin(dim=-1).to(torch.int64)
+    return codes
 
 
 @dataclass(frozen=True)
@@ -339,12 +347,14 @@ def build_pq_metadata(
         seed=seed,
     )
     codes = encode_keys(keys, codebooks)
-    return PQMetadata(
-        codebooks=codebooks,
-        codes=codes,
-        seed=seed,
-        max_iterations=max_iterations,
-    )
+    with profile_component("pq.init.initial_code_storage"):
+        metadata = PQMetadata(
+            codebooks=codebooks,
+            codes=codes,
+            seed=seed,
+            max_iterations=max_iterations,
+        )
+    return metadata
 
 
 def append_pq_codes(
@@ -360,12 +370,15 @@ def append_pq_codes(
     appends code IDs in causal sequence order.
     """
     new_codes = encode_keys(new_keys, metadata.codebooks)
-    return PQMetadata(
-        codebooks=metadata.codebooks,
-        codes=torch.cat((metadata.codes, new_codes), dim=2),
-        seed=metadata.seed,
-        max_iterations=metadata.max_iterations,
-    )
+    with profile_component("pq.append.code_append"):
+        appended_codes = torch.cat((metadata.codes, new_codes), dim=2)
+        appended = PQMetadata(
+            codebooks=metadata.codebooks,
+            codes=appended_codes,
+            seed=metadata.seed,
+            max_iterations=metadata.max_iterations,
+        )
+    return appended
 
 
 def reconstruct_keys(metadata: PQMetadata) -> torch.Tensor:
@@ -409,17 +422,20 @@ def query_lookup_tables(
 ) -> torch.Tensor:
     """Return query-to-centroid dot products ``[B, Hkv, M, C]``."""
     _validate_query(query, metadata)
-    query_subspaces = query.reshape(
-        query.shape[0],
-        query.shape[1],
-        metadata.num_subspaces,
-        metadata.subspace_dimension,
-    )
-    return torch.einsum(
-        "bhmd,bhmcd->bhmc",
-        query_subspaces,
-        metadata.codebooks,
-    )
+    with profile_component("pq.search.query_split"):
+        query_subspaces = query.reshape(
+            query.shape[0],
+            query.shape[1],
+            metadata.num_subspaces,
+            metadata.subspace_dimension,
+        )
+    with profile_component("pq.search.query_centroid_dot_products"):
+        lookup_tables = torch.einsum(
+            "bhmd,bhmcd->bhmc",
+            query_subspaces,
+            metadata.codebooks,
+        )
+    return lookup_tables
 
 
 def score_pq_codes(
@@ -428,15 +444,19 @@ def score_pq_codes(
 ) -> torch.Tensor:
     """Approximate raw query-key dot products with shape ``[B, Hkv, S]``."""
     lookup_tables = query_lookup_tables(query, metadata)
-    scores = query.new_zeros(
-        query.shape[0],
-        query.shape[1],
-        metadata.sequence_length,
-    )
-    for subspace_id in range(metadata.num_subspaces):
-        scores += torch.gather(
-            lookup_tables[:, :, subspace_id, :],
-            dim=-1,
-            index=metadata.codes[:, :, :, subspace_id],
+    with profile_component("pq.search.score_allocation"):
+        scores = query.new_zeros(
+            query.shape[0],
+            query.shape[1],
+            metadata.sequence_length,
         )
+    for subspace_id in range(metadata.num_subspaces):
+        with profile_component("pq.search.code_lookup"):
+            subspace_scores = torch.gather(
+                lookup_tables[:, :, subspace_id, :],
+                dim=-1,
+                index=metadata.codes[:, :, :, subspace_id],
+            )
+        with profile_component("pq.search.subspace_summation"):
+            scores += subspace_scores
     return scores

@@ -4,6 +4,360 @@ This document records the research provenance used by KVDB. Algorithmic ideas,
 observations from upstream implementations, and KVDB-authored code are kept
 separate so that attribution and licensing remain explicit.
 
+## Pythia-410M Phase 4 reference decode profiling
+
+### Frozen methodology and evidence boundary
+
+Phase 4 profiles the accepted Phase 3B execution path without optimizing or
+changing it. The fixed matrix is the pinned Pythia-410M model revision
+`9879c9b5f8bea9051dcb0e68dff21493d67e9d4f`, Transformers 5.15.1 source
+revision `550d7b3834670483a4df436541272c055dc364bf`, CPU, float32, eager/reference
+execution, exact 1,024-token `technical_exposition` and `code_like` fixtures,
+32 generated-token positions with the accepted 31 explicit decode steps,
+teacher forcing only, Quest p64, PQ M4/C8 with eight initial Lloyd iterations
+and seed zero, and 50% plus 100% control budgets. The structured gitignored
+artifact is `benchmarks/results/pythia-410m-phase4-profile.json`. Three large
+raw PyTorch traces are under `benchmarks/results/profile/pythia-410m-phase4/`
+and remain uncommitted.
+
+The measurement machine was an Apple M1 Max with 64 GiB physical memory,
+macOS 26.6.2 arm64, CPython 3.11.16, and PyTorch 2.13.0. The existing/default
+thread configuration was eight intra-op threads and ten inter-op threads. No
+thread tuning or lower-thread comparison was performed.
+
+Every measured path followed one complete uninstrumented 31-step warmup replay.
+The measured replay then contributed 62 decode-step and 1,488 layer-step
+observations per strategy/budget cell across the two fixtures. Named scopes use
+`time.perf_counter_ns`; the median calibrated empty-scope cost was 1.292
+microseconds total and 0.084 microseconds inside the recorded body. This cost
+was not subtracted. CPU execution required no synchronization. Initialization
+was measured once per fixture and strategy before the 50% path and excluded
+from steady-state distributions.
+
+The instrumentation binds intermediate values and adds scopes around the
+existing expressions. It does not change stable full `argsort`, ranking,
+newest-token replacement, causal ordering, QKV splitting, partial RoPE,
+storage fetch, attention, residual math, or shared interfaces. Each profiled
+replay was compared with a separately initialized uninstrumented replay.
+Logits, queries, attention outputs, residual streams, and selection IDs/scores/
+masks were bit-exact for every one of 310 profiled strategy/budget/fixture
+steps. Dense generation matched Hugging Face with zero observed logit error on
+both fixtures. Quest and PQ 100% selected every causal token and matched dense
+at every step/layer.
+
+The 50% Phase 4 logit metrics also exactly reproduce the matching frozen Phase
+3B cells. Quest's 62-step Top-1 agreement, Top-5 overlap, mean relative logit
+error, and KL were `0.983871`, `0.706452`, `0.426711`, and `0.050359`; PQ's
+were `0.967742`, `0.664516`, `0.514389`, and `0.033720`. The corresponding
+100% values were exact. Profiling therefore changed no accepted quality or
+correctness result.
+
+### Dense baseline and model/retrieval boundary
+
+Times below are milliseconds per complete 24-layer decode step, summarized
+over 62 observations. `Total layers` excludes embedding/rotary setup, final
+normalization, LM head, and other step-level work. `Misc.` is the residual
+inside layer wall time after all named non-overlapping scopes.
+
+| Dense component | Median | p90 | p95 |
+| --- | ---: | ---: | ---: |
+| QKV projection | 12.279 | 12.673 | 12.754 |
+| RoPE / QK preparation | 2.357 | 2.662 | 2.697 |
+| causal K/V append | 7.406 | 9.668 | 9.942 |
+| dense attention | 13.727 | 17.577 | 17.699 |
+| attention output projection | 5.060 | 5.282 | 5.297 |
+| MLP | 31.316 | 32.575 | 32.676 |
+| layer norm / residual | 1.382 | 1.709 | 1.722 |
+| miscellaneous layer overhead | 2.577 | 3.024 | 3.048 |
+| total layers | 76.902 | 83.667 | 85.266 |
+| total decode step | 86.175 | 92.827 | 94.964 |
+
+KVDB retrieval overhead is defined here as index update/rebuild, search,
+selection policy, and `TensorStorage.fetch`; selected attention remains model
+attention whose cost depends on `K`. Normal model compute is QKV/RoPE, the
+common full-precision K/V append, output projection, MLP, layer norms/residuals,
+and miscellaneous layer work. This keeps the index/storage boundary separate
+from ordinary model computation.
+
+Matched approximate-minus-dense medians show that Quest 50% added 49.561 ms of
+retrieval work, changed selected attention by -0.249 ms, changed comparable
+normal model work by +5.810 ms, and raised total step wall time by 63.961 ms.
+PQ 50% added 50.183 ms of retrieval, changed selected attention by -6.813 ms,
+changed comparable normal work by +4.959 ms, and raised total by 50.563 ms.
+The matched residuals were below 0.7 ms. These reference deltas describe where
+time went; they are not speedup-potential estimates, and medians of individual
+components need not add exactly.
+
+### Initialization costs
+
+Quest initial p64 construction across 24 layers had a median total of 6.902 ms
+(range 6.858--6.946 ms across the two fixtures). Its per-layer median/p90/p95
+was 0.287/0.335/0.366 ms. Per-layer component distributions were:
+
+| Quest initialization component | Median | p90 | p95 | Calls |
+| --- | ---: | ---: | ---: | ---: |
+| page reshape/padding | 0.004 | 0.012 | 0.014 | 48 |
+| page minimum | 0.153 | 0.177 | 0.203 | 48 |
+| page maximum | 0.102 | 0.117 | 0.120 | 48 |
+| metadata object | 0.005 | 0.008 | 0.013 | 48 |
+| validation/miscellaneous | 0.022 | 0.034 | 0.041 | 48 |
+
+PQ initial M4/C8 construction across 24 layers had a median total of 6.937
+seconds (6.713--7.161 seconds). Its per-layer median/p90/p95 was
+284.127/308.211/311.553 ms. Initial training is not included in decode
+overhead.
+
+| PQ initialization component | Median/layer | p90 | p95 | Calls |
+| --- | ---: | ---: | ---: | ---: |
+| codebook input reshape/allocation | 0.015 | 0.019 | 0.019 | 48 |
+| K-means training | 279.611 | 302.225 | 305.581 | 48 layer totals |
+| prefill encoding | 2.366 | 2.958 | 3.402 | 48 |
+| initial code storage/metadata | 0.384 | 0.501 | 0.544 | 48 |
+| validation/miscellaneous | 1.834 | 2.293 | 2.505 | 48 |
+
+Each K-means layer total contains 64 independently timed head/subspace groups;
+the full artifact retains their 3,072 atomic calls. The representative largest
+initial PQ temporary is the 32 MiB float32 broadcast-difference tensor
+`[1,16,1024,4,8,16]`; distances are 2 MiB, persistent int64 codes 512 KiB,
+and codebooks 32 KiB per layer. At S=1,024, Quest needs no tail padding and
+writes two 64 KiB metadata tensors `[1,16,16,64]` per layer.
+
+### Quest steady-state breakdown
+
+Each row below is summed across all 24 layers for one step. `Share` is the
+median fraction of retrieval overhead only; selected attention and total decode
+are deliberately outside that denominator. Each budget has 62 step totals and
+1,488 underlying layer calls.
+
+| Quest component | 50% median / p90 / p95 | 50% share | 100% median / p90 / p95 | 100% share |
+| --- | ---: | ---: | ---: | ---: |
+| metadata rebuild | 21.097 / 26.451 / 30.108 | 41.9% | 21.323 / 25.121 / 26.562 | 35.3% |
+| query-page scoring | 0.953 / 1.048 / 1.081 | 1.9% | 0.910 / 1.078 / 1.087 | 1.6% |
+| page ranking / IDs | 0.892 / 1.019 / 1.050 | 1.8% | 0.905 / 1.044 / 1.053 | 1.6% |
+| page-to-token expansion/mask | 5.446 / 5.674 / 5.718 | 11.0% | 8.950 / 9.399 / 9.482 | 15.2% |
+| newest-token inclusion | 6.608 / 7.355 / 7.514 | 13.4% | 5.518 / 5.685 / 5.712 | 9.5% |
+| causal reordering | 3.818 / 3.942 / 3.949 | 7.5% | 6.926 / 7.365 / 7.416 | 11.6% |
+| `TensorStorage` fetch/gather | 10.676 / 12.774 / 14.483 | 21.7% | 14.544 / 18.569 / 20.742 | 24.8% |
+| total retrieval overhead | 49.561 / 56.361 / 58.418 | 100% | 58.784 / 66.124 / 69.754 | 100% |
+| selected attention | 13.721 / 16.920 / 18.323 | n/a | 12.405 / 17.654 / 17.796 | n/a |
+| total decode step | 143.023 / 153.974 / 162.240 | n/a | 144.740 / 166.613 / 170.120 | n/a |
+
+The median Quest layer took 5.413 ms at 50% and 5.794 ms at 100%. Metadata
+rebuild was 0.804/0.801 ms per layer, fetch was 0.400/0.518 ms, and selected
+attention was 0.572/0.559 ms. The raw artifact retains every step/layer value.
+
+Metadata rebuild itself separates as follows, again as 24-layer step totals:
+
+| Quest metadata operation | 50% median / p90 / p95 | 100% median / p90 / p95 | Atomic calls/cell |
+| --- | ---: | ---: | ---: |
+| page reshape/padding and copies | 12.906 / 15.968 / 20.250 | 13.011 / 15.857 / 16.510 | 1,488 |
+| page minimum | 3.803 / 4.643 / 5.711 | 3.820 / 4.583 / 5.389 | 1,488 |
+| page maximum | 3.531 / 5.333 / 6.417 | 3.425 / 4.971 / 5.800 | 1,488 |
+| metadata object construction | 0.205 / 0.261 / 0.288 | 0.220 / 0.256 / 0.263 | 1,488 |
+
+At the representative final S=1,055 step, Quest reads an estimated 8,642,560
+bytes of full keys twice for min/max and writes 139,264 metadata bytes per
+layer, for 8,781,824 logical bytes total. Page scoring moves an estimated
+349,248 bytes. At 50%, the rectangular selection width is 576 because nine
+p64 pages are selected: K/V gather reads and writes 4,718,592 bytes each
+(9,437,184 total), and selected attention consumes 4,718,592 K/V bytes. At
+100%, gather traffic rises to 17,285,120 bytes and attention K/V consumption to
+8,642,560 bytes. These are analytical logical estimates, not cache or allocator
+counters.
+
+Allocation hot spots agree with that traffic. The partial tail creates two
+132 KiB padding tensors and two 4.25 MiB padded K inputs per layer; reshape is a
+view. Persistent min/max metadata is 68 KiB each. The three score-dimension
+intermediates are 68 KiB each. Expanded 50% page-token IDs are 72 KiB plus a
+9 KiB mask. Gathered K and V are 2.25 MiB each at 50% and 4.12 MiB each at
+100%. The separate operator trace records 421.6 MB of `cat` allocations across
+the complete 24-layer Quest step, followed by 108.5 MB in the dominant gather
+shape.
+
+The Quest 50% operator trace confirms a copy/reduction/gather workload rather
+than a page-scoring bottleneck. Top retrieval-relevant operators by self CPU
+time were `cat` 15.316 ms (193 calls including baseline K/V and metadata
+copies), `gather` 9.746 ms for the dominant selected-K/V shape, `sort` 4.987
+ms for selection/mask ordering, `amin` 3.130 ms, and `where` 2.895 ms. Normal
+model `addmm` calls remain large but are outside Quest retrieval overhead.
+
+The 50-to-100 comparison separates budget-independent work: metadata changed
+only +1.1%, scoring -4.5%, and page ranking +1.4%, while page expansion rose
+64%, causal reordering 81%, and fetch 36%. Total decode was nearly unchanged
+in the pooled medians (+1.2%), demonstrating that this reference path does not
+turn a smaller selected budget into a measured end-to-end benefit. This is not
+an optimized-runtime or speedup claim.
+
+### PQ steady-state breakdown
+
+| PQ component | 50% median / p90 / p95 | 50% share | 100% median / p90 / p95 | 100% share |
+| --- | ---: | ---: | ---: | ---: |
+| frozen append | 10.154 / 11.824 / 13.206 | 20.4% | 10.563 / 11.608 / 12.131 | 17.2% |
+| lookup-table construction | 0.964 / 1.036 / 1.143 | 1.9% | 1.030 / 1.228 / 1.236 | 1.7% |
+| approximate score reconstruction | 2.177 / 2.240 / 2.273 | 4.4% | 2.297 / 2.476 / 2.496 | 3.8% |
+| stable full-score ranking / IDs | 15.762 / 16.251 / 16.282 | 31.4% | 15.947 / 16.767 / 16.898 | 26.0% |
+| newest-token inclusion | 5.047 / 5.183 / 5.218 | 10.0% | 5.608 / 5.971 / 6.009 | 9.3% |
+| causal reordering | 5.327 / 5.513 / 5.557 | 10.7% | 10.545 / 11.235 / 11.340 | 17.3% |
+| `TensorStorage` fetch/gather | 10.282 / 13.120 / 14.979 | 20.5% | 15.012 / 18.230 / 21.632 | 24.2% |
+| total retrieval overhead | 50.183 / 53.845 / 55.577 | 100% | 62.070 / 65.897 / 67.971 | 100% |
+| selected attention | 6.968 / 7.510 / 11.265 | n/a | 11.697 / 20.262 / 20.635 | n/a |
+| total decode step | 130.953 / 151.199 / 152.946 | n/a | 151.061 / 176.313 / 177.400 | n/a |
+
+The median PQ layer took 5.049 ms at 50% and 5.969 ms at 100%. Ranking was
+0.656/0.668 ms per layer, frozen append 0.416/0.428 ms, fetch 0.378/0.551 ms,
+and selected attention 0.284/0.503 ms.
+
+Frozen append is mostly reference code concatenation and metadata validation,
+not centroid math. At 50%, its 24-layer median is 9.120 ms for code append and
+metadata construction, 0.568 ms for centroid distances, 0.233 ms for centroid
+assignment, and 0.227 ms for subspace preparation. The corresponding 100%
+values are 9.459, 0.604, 0.244, and 0.236 ms. Ranking is almost entirely the
+stable full `argsort`: 15.516 ms plus 0.243 ms ID handling at 50%, and 15.595
+plus 0.370 ms at 100%. Each atomic operation has 1,488 calls per cell.
+
+At S=1,055, the frozen assignment moves an estimated 37,376 logical bytes per
+layer, but the reference int64 code `cat` moves 1,080,320 bytes and scales with
+S. Lookup-table construction moves 38,912 bytes. Approximate score
+reconstruction moves an estimated 1,147,840 bytes and scales with `H*S*M`.
+The 50% K/V gather moves 8,650,752 bytes and attention consumes 4,325,376 K/V
+bytes; both double approximately at 100%.
+
+Major per-layer PQ allocations are the 32 KiB append difference tensor, 2 KiB
+distances, 527.5 KiB replacement int64 code tensor, 2 KiB lookup table, 66 KiB
+approximate score tensor, four 66 KiB subspace lookup results, and 132 KiB
+ranked-ID tensor. Gathered K/V are 2.06 MiB each at 50% and 4.12 MiB each at
+100%. The operator trace records 103.8 MB in the dominant K/V gather shape,
+220.6 MB of `cat` allocations across the full step, and 4.86 MB for the full
+score sort shape.
+
+The PQ operator trace makes the selected bottleneck unambiguous: stable sort of
+`[1,16,1055]` scores was the top operator at 15.823 ms self CPU time across 24
+calls (16.149 ms total). The next retrieval-specific operators were gather at
+9.639 ms, `cat` at 8.715 ms, the separate causal-order sort at 4.277 ms, and
+full-code validation reductions such as `any` at 3.141 ms. Score reconstruction
+did not dominate.
+
+From 50% to 100%, append, lookup construction, score reconstruction, and full
+score ranking changed only +4.0%, +6.9%, +5.6%, and +1.2%. They scan or update
+the full context independently of K. Causal ordering rose 98%, storage fetch
+46%, and selected attention 68%, as expected for K-dependent work. Total decode
+rose 15.4%. Full-context ranking at both budgets is direct evidence that this
+reference operation erases part of the theoretical sparse-attention benefit.
+
+### Python overhead, scaling, and bottleneck ranking
+
+Separate cProfile replays are diagnostic and excluded from primary timing.
+For Quest 50%, `prepare_decode_selection` had 5.954 ms Python self time across
+24 calls, `GPTNeoXDecodeRunner.step` 3.788 ms, and page expansion 1.640 ms. For
+PQ 50%, preparation used 4.914 ms, `PQMetadata.__post_init__` 3.197 ms, the
+runner 3.145 ms, and the Python score loop 1.077 ms. The named-scope/context
+machinery itself was below a millisecond per representative step. These
+cProfile self times include interpreter/dispatch accounting and must not be
+summed with separately profiled native operator times. They show meaningful
+control-flow and validation overhead, but the top selected targets are also
+confirmed by tensor-operator evidence.
+
+Expected tensor-dimension scaling is:
+
+| Work | Approximate scaling |
+| --- | --- |
+| Quest metadata rebuild | `O(H*S*D)` |
+| Quest query-page scoring | `O(H*ceil(S/P)*D)` |
+| Quest page ranking | reference `O(H*(S/P)*log(S/P))` |
+| Quest page expansion/policy | `O(H*K)` plus causal sort `O(H*K*log K)` |
+| PQ frozen centroid assignment | `O(H*M*C*(D/M)) = O(H*C*D)` |
+| PQ reference code append | `O(H*S*M)` |
+| PQ lookup table | `O(H*M*C*(D/M)) = O(H*C*D)` |
+| PQ score reconstruction | `O(H*S*M)` |
+| PQ stable full ranking | reference `O(H*S*log S)` |
+| storage fetch / selected attention | `O(H*K*D)` |
+
+These are shape-level expectations, not exact hardware complexities; Python,
+validation, allocation, copies, cache behavior, and PyTorch thread scheduling
+are material in this reference implementation.
+
+The measured pooled top three, across both budgets and 124 steps per strategy,
+are:
+
+1. Quest metadata rebuild: 21.237 ms median, 28.444 ms p95, 38.9% median
+   retrieval-overhead share. It is repeated `O(H*S*D)` reference-runtime work;
+   an exact incremental formulation should not affect quality semantics.
+2. Quest storage fetch/gather: 13.020 ms, 18.968 ms p95, 23.6%. It is shared
+   `O(H*K*D)` gather-bound work and is not Quest-specific.
+3. Quest page-to-token expansion: 7.075 ms, 9.398 ms p95, 12.1%. It is
+   `O(H*K)` reference representation/mask work.
+
+1. PQ stable full-score ranking: 15.846 ms median, 16.765 ms p95, 27.6%
+   median retrieval-overhead share. It is `O(H*S*log S)` in this reference and
+   repeats independently of K; exact selected IDs and tie semantics are at risk
+   if changed carelessly.
+2. PQ storage fetch/gather: 13.409 ms, 18.228 ms p95, 23.3%. This is shared
+   gather-bound `O(H*K*D)` work.
+3. PQ frozen append: 10.303 ms, 12.156 ms p95, 19.1%. This mixes small
+   algorithmic centroid assignment with `O(H*S*M)` reference concatenation and
+   validation overhead.
+
+### Selected targets, backend fit, and Apple Silicon interpretation
+
+**QUEST TARGET: metadata rebuild.** It is the largest repeated Quest retrieval
+component at both budgets, is independent of K, reads the full key cache twice,
+and is corroborated by `cat`, `amin`, and `amax` operator timings. The exact
+next experiment is an incremental eager-PyTorch semantic oracle that updates
+only the newest page after each append, preserves exact metadata and selection
+IDs, reruns every Phase 3B/4 correctness gate, and compares before/after
+component and total timings against this artifact. That experiment has not
+started.
+
+**PQ TARGET: stable full-score ranking.** It is the largest repeated PQ
+retrieval component at both budgets and the top retrieval operator by self CPU
+time. The exact next experiment is deterministic partial selection against the
+existing stable full `argsort`, including explicit ascending-token-ID tie
+repair if needed, with bit-exact selection/newest/causal/full-budget controls
+before timing. No sort was replaced in Phase 4.
+
+For Quest, portable eager PyTorch incremental state is the best first semantic
+experiment because the primary opportunity is eliminating an `O(S)` rebuild,
+not choosing a lower-level backend for the same waste. Portable C++ or Rust
+with ARM NEON/SIMD is second if the reduced update remains material. MLX/Metal
+may fit a later device-resident Apple cache; Triton/CUDA fit a later GPU profile.
+For PQ ranking, a PyTorch partial-selection prototype with deterministic tie
+repair is the smallest first experiment; portable C++/Rust selection is next,
+then MLX/Metal for a device-resident Apple path and Triton/CUDA for a separately
+profiled GPU path. `torch.compile` is not selected for either target: the
+measured Quest issue is algorithmic full-cache work and the PQ issue is one
+specific stable selection operation. These are ranked experiment directions,
+not backend commitments.
+
+On this Apple M1 Max CPU, Quest metadata appears primarily allocation/copy- and
+bandwidth-bound with two reductions; ARM NEON or portable SIMD could help the
+remaining reduction only after incremental state removes the full scan.
+Accelerate may help dense linear algebra but is not a direct answer to page
+metadata construction. Quest/PQ fetch are gather- and bandwidth-bound. PQ
+ranking is sort/selection-bound; NEON is less directly applicable than a
+deterministic selection algorithm or library primitive. PQ code append is
+allocation/copy/validation-bound. Query-page scoring, PQ lookup construction,
+and PQ score reconstruction are small here; claiming Metal or MLX will improve
+the profile would be unsupported without a device-resident replay.
+
+### Decision and limitations
+
+Phase 4 required no change to `KVIndex`, `Selection`, `KVStorage`,
+`RetrievedKV`, `KVCache`, Quest/PQ ranking, storage semantics, attention, or
+model integration architecture. `DESIGN.md` therefore remains unchanged. The
+only code changes are opt-in instrumentation, accounting/aggregation helpers,
+the fixed profile runner, and offline tests. No external source was copied and
+no profiler dependency was added.
+
+Phase 5 is justified only as two narrow before/after experiments against the
+selected targets above. It is not yet justified as a backend migration, a
+general speedup claim, or simultaneous optimization of other visible costs.
+Limitations are one model, one prompt length, two deterministic fixtures, one
+Apple CPU/thread configuration, 62 steps per cell, eager reference execution,
+timer perturbation, analytical rather than hardware byte counters, and
+separate operator/cProfile replays. Partial-retrieval quality remains sensitive;
+performance work must preserve the exact quality gates rather than treating
+speed as sufficient evidence.
+
 ## Pythia-410M Phase 3B autoregressive decode validation
 
 ### Frozen boundary and decode architecture

@@ -11,6 +11,7 @@ from kvdb.indexes.pq.reference import (
     build_pq_metadata,
     score_pq_codes,
 )
+from kvdb.profiling import profile_component
 
 
 class PQIndex:
@@ -58,14 +59,16 @@ class PQIndex:
         validate_budget(budget, metadata.sequence_length)
         with torch.no_grad():
             scores = score_pq_codes(query, metadata)
-            ranked_indices = torch.argsort(
-                scores,
-                dim=-1,
-                descending=True,
-                stable=True,
-            )
-            top_indices = ranked_indices[..., :budget]
-            top_scores = torch.gather(scores, dim=-1, index=top_indices)
+            with profile_component("pq.search.ranking"):
+                ranked_indices = torch.argsort(
+                    scores,
+                    dim=-1,
+                    descending=True,
+                    stable=True,
+                )
+            with profile_component("pq.search.token_id_handling"):
+                top_indices = ranked_indices[..., :budget]
+                top_scores = torch.gather(scores, dim=-1, index=top_indices)
         return Selection(indices=top_indices, scores=top_scores)
 
     def append(self, new_keys: torch.Tensor) -> None:
