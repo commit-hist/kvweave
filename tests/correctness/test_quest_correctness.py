@@ -121,10 +121,10 @@ def test_candidate_recall_ignores_masked_rectangular_placeholders() -> None:
     )
 
 
-def test_quest_candidate_recall_against_brute_force_uses_explicit_comparison_k() -> None:
-    keys = torch.tensor(
-        [[[[9.0], [8.0], [1.0], [0.0], [7.0], [-10.0]]]]
-    )
+def test_quest_candidate_recall_against_brute_force_uses_explicit_comparison_k() -> (
+    None
+):
+    keys = torch.tensor([[[[9.0], [8.0], [1.0], [0.0], [7.0], [-10.0]]]])
     query = torch.ones(1, 1, 1)
     quest = QuestIndex(page_size=2)
     quest.build(keys)
@@ -189,9 +189,7 @@ def test_reference_attention_reports_sparse_selection_percentage_and_error() -> 
 def test_masked_attention_ignores_invalid_keys_and_values() -> None:
     query = torch.tensor([[[1.0, -0.5]]])
     keys = torch.tensor([[[[2.0, 1.0], [1.0, 3.0], [float("nan"), float("inf")]]]])
-    values = torch.tensor(
-        [[[[4.0, 2.0], [8.0, 6.0], [float("nan"), float("inf")]]]]
-    )
+    values = torch.tensor([[[[4.0, 2.0], [8.0, 6.0], [float("nan"), float("inf")]]]])
     valid_mask = torch.tensor([[[True, True, False]]])
     retrieved = RetrievedKV(keys=keys, values=values, valid_mask=valid_mask)
 

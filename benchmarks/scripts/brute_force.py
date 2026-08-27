@@ -21,7 +21,9 @@ DTYPES = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--context-lengths", nargs="+", type=int, default=[128, 512, 2048, 8192])
+    parser.add_argument(
+        "--context-lengths", nargs="+", type=int, default=[128, 512, 2048, 8192]
+    )
     parser.add_argument("--budget", type=int, default=64)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--kv-heads", type=int, default=4)

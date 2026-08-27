@@ -6,12 +6,8 @@ from kvdb.indexes.quest.reference import selected_attention
 
 
 def test_cache_build_retrieve_interaction() -> None:
-    keys = torch.tensor(
-        [[[[1.0, 0.0], [0.0, 1.0], [3.0, 0.0], [0.0, 2.0]]]]
-    )
-    values = torch.tensor(
-        [[[[10.0, 0.0], [20.0, 0.0], [30.0, 0.0], [40.0, 0.0]]]]
-    )
+    keys = torch.tensor([[[[1.0, 0.0], [0.0, 1.0], [3.0, 0.0], [0.0, 2.0]]]])
+    values = torch.tensor([[[[10.0, 0.0], [20.0, 0.0], [30.0, 0.0], [40.0, 0.0]]]])
     cache = KVCache(index=BruteForceIndex(), storage=TensorStorage())
     cache.build(keys, values)
 
@@ -40,9 +36,7 @@ def test_cache_build_rejects_mismatched_kv() -> None:
 
 
 def test_cache_accepts_uniform_quest_page_selection() -> None:
-    keys = torch.tensor(
-        [[[[3.0, 0.0], [2.0, 0.0], [0.0, 1.0], [0.0, -1.0]]]]
-    )
+    keys = torch.tensor([[[[3.0, 0.0], [2.0, 0.0], [0.0, 1.0], [0.0, -1.0]]]])
     values = keys + 10.0
     cache = KVCache(index=QuestIndex(page_size=2), storage=TensorStorage())
     cache.build(keys, values)

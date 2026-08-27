@@ -351,6 +351,7 @@ def main() -> None:
                 )
 
         for page_size in args.page_sizes:
+
             def build_quest() -> QuestIndex:
                 index = QuestIndex(page_size=page_size)
                 index.build(keys)
@@ -411,6 +412,7 @@ def main() -> None:
 
         for num_subspaces in args.pq_subspaces:
             for num_centroids in args.pq_centroids:
+
                 def build_pq() -> PQIndex:
                     index = PQIndex(
                         num_subspaces=num_subspaces,
@@ -436,8 +438,7 @@ def main() -> None:
                     num_centroids,
                 )
                 codebook_storage_bytes = (
-                    metadata.codebooks.numel()
-                    * metadata.codebooks.element_size()
+                    metadata.codebooks.numel() * metadata.codebooks.element_size()
                 )
                 reconstruction_error = relative_error(
                     reconstruct_keys(metadata),

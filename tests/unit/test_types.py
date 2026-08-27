@@ -122,7 +122,11 @@ def test_kv_validation_accepts_canonical_layout() -> None:
         (torch.randn(2, 3, 5), torch.randn(2, 3, 5), ValueError),
         (torch.randn(1, 2, 3, 4), torch.randn(1, 2, 4, 4), ValueError),
         (torch.ones(1, 2, 3, 4, dtype=torch.int64), torch.ones(1, 2, 3, 4), TypeError),
-        (torch.randn(1, 2, 3, 4), torch.randn(1, 2, 3, 4, dtype=torch.float64), ValueError),
+        (
+            torch.randn(1, 2, 3, 4),
+            torch.randn(1, 2, 3, 4, dtype=torch.float64),
+            ValueError,
+        ),
         (torch.empty(1, 2, 0, 4), torch.empty(1, 2, 0, 4), ValueError),
     ],
 )

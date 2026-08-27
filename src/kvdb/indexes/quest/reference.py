@@ -139,9 +139,7 @@ def compare_attention(
 
     if retrieved.valid_mask is None:
         selected_tokens = (
-            retrieved.keys.shape[0]
-            * retrieved.keys.shape[1]
-            * retrieved.keys.shape[2]
+            retrieved.keys.shape[0] * retrieved.keys.shape[1] * retrieved.keys.shape[2]
         )
     else:
         selected_tokens = retrieved.valid_mask.sum().item()

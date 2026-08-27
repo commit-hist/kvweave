@@ -1,0 +1,18 @@
+[GLOBAL]
+pants_version = "2.33.0"
+backend_packages = [
+    "pants.backend.build_files.fmt.ruff",
+    "pants.backend.experimental.python.lint.ruff.check",
+    "pants.backend.experimental.python.lint.ruff.format",
+    "pants.backend.python",
+]
+
+[python]
+enable_resolves = true
+interpreter_constraints = ["CPython==3.11.*"]
+
+[python.resolves]
+python-default = "3rdparty/python/default.lock"
+
+[ruff]
+config = "pyproject.toml"

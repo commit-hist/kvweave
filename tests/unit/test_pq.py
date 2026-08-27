@@ -79,8 +79,7 @@ def test_train_kmeans_is_deterministic() -> None:
     torch.testing.assert_close(first.assignments, second.assignments)
     assert first.iterations == second.iterations
     assert (
-        first.empty_cluster_reinitializations
-        == second.empty_cluster_reinitializations
+        first.empty_cluster_reinitializations == second.empty_cluster_reinitializations
     )
 
 

@@ -38,12 +38,19 @@ model integration.
 
 ## Development
 
+Install the [Pants launcher](https://www.pantsbuild.org/stable/docs/getting-started/installing-pants),
+then use Pants for formatting, linting, testing, packaging, and benchmark entry
+points. Pants installs the pinned Ruff tool; no separate Ruff installation is
+required.
+
 ```bash
-python -m pip install -e '.[test]'
-pytest
-python benchmarks/scripts/brute_force.py
-python benchmarks/scripts/quest_reference.py
-python benchmarks/scripts/pq_reference.py
+pants fmt ::
+pants lint ::
+pants test ::
+pants package //:dist
+pants run benchmarks/scripts:brute_force
+pants run benchmarks/scripts:quest_reference
+pants run benchmarks/scripts:pq_reference
 ```
 
 The brute-force script is a harness smoke test. The Quest script compares exact

@@ -296,9 +296,9 @@ Do not add abstractions solely because they might be useful later.
 Phase 1 is complete when a fresh checkout can:
 
 ```bash
-pip install -e .
-pytest
-python benchmarks/scripts/quest_reference.py
+pants lint ::
+pants test ::
+pants run benchmarks/scripts:quest_reference
 ```
 
 and the benchmark compares:
@@ -569,4 +569,3 @@ For every task:
 Do not report work as successful merely because the code executes.
 
 We care about whether the underlying technical hypothesis survives measurement.
-

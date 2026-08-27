@@ -62,13 +62,10 @@ class QuestMetadata:
             raise ValueError("minimum and maximum metadata devices must match")
         if not torch.is_floating_point(self.minimum):
             raise TypeError("Quest metadata must use a floating-point dtype")
-        expected_pages = (
-            self.sequence_length + self.page_size - 1
-        ) // self.page_size
+        expected_pages = (self.sequence_length + self.page_size - 1) // self.page_size
         if self.minimum.shape[2] != expected_pages:
             raise ValueError(
-                "Quest metadata page count does not match sequence_length and "
-                "page_size"
+                "Quest metadata page count does not match sequence_length and page_size"
             )
 
     @property
@@ -79,11 +76,14 @@ class QuestMetadata:
     @property
     def page_lengths(self) -> torch.Tensor:
         """Return valid token counts for pages as an integer tensor ``[P]``."""
-        page_starts = torch.arange(
-            self.num_pages,
-            device=self.minimum.device,
-            dtype=torch.int64,
-        ) * self.page_size
+        page_starts = (
+            torch.arange(
+                self.num_pages,
+                device=self.minimum.device,
+                dtype=torch.int64,
+            )
+            * self.page_size
+        )
         return (self.sequence_length - page_starts).clamp(
             min=0,
             max=self.page_size,
@@ -197,7 +197,9 @@ def expand_pages_to_tokens(
     if page_indices.dtype != torch.int64:
         raise TypeError("page_indices must use torch.int64")
     if page_indices.shape[:2] != metadata.minimum.shape[:2]:
-        raise ValueError("page_indices batch and KV-head dimensions must match metadata")
+        raise ValueError(
+            "page_indices batch and KV-head dimensions must match metadata"
+        )
     if page_indices.shape[-1] <= 0:
         raise ValueError("at least one page must be selected")
     if page_indices.device != metadata.minimum.device:

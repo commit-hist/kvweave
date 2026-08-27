@@ -18,7 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    "pytest>=8",
+    "pytest>=8,<9",
 ]
 
 [tool.setuptools.packages.find]
@@ -27,3 +27,12 @@ where = ["src"]
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.format]
+indent-style = "space"
+line-ending = "lf"
+quote-style = "double"

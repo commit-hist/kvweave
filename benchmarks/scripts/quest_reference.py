@@ -314,6 +314,7 @@ def main() -> None:
         )
 
         for page_size in args.page_sizes:
+
             def build_quest() -> QuestIndex:
                 index = QuestIndex(page_size=page_size)
                 index.build(keys)
@@ -367,10 +368,14 @@ def main() -> None:
                 selected_percentage = (
                     100.0 * actual_counts.mean().item() / context_length
                 )
-                recall = candidate_recall(
-                    quest_result.selection,
-                    exact_topk,
-                ).mean().item()
+                recall = (
+                    candidate_recall(
+                        quest_result.selection,
+                        exact_topk,
+                    )
+                    .mean()
+                    .item()
+                )
                 output_error = relative_error(approximate_output, full_output)
                 print(
                     f"{context_length},{page_size},{requested_budget},"
