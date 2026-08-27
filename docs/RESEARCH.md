@@ -425,6 +425,227 @@ fixed configuration and the unattainable retrospective oracle, plus feature
 and index costs. Do not add a public planner/policy interface unless that
 prospective held-out test recovers a material fraction of the oracle gap.
 
+## Pythia-410M Phase 3A policy-feasibility validation
+
+### Frozen protocol before held-out evaluation
+
+This experiment asks only whether features available before approximate
+retrieval can select among the four already accepted configurations more
+effectively than a development-selected fixed choice on unseen structural
+inputs after feature/prediction cost. It is not an adaptive planner
+implementation and introduces no public/core API.
+
+The candidate order, which is also the exact-tie order, is frozen as Quest p16,
+Quest p64, PQ M2/C4, and PQ M4/C8. Budgets are evaluated independently at
+12.5%, 25%, and 50%; 100% remains a retrieval correctness control and is not a
+training target. The accepted eight structural-replication fixtures are
+development-only. Their 16 token-ID hashes are those already recorded by the
+accepted replication artifact.
+
+| Development fixture | Text SHA-256 | 512-token ID SHA-256 | 2,048-token ID SHA-256 |
+| --- | --- | --- | --- |
+| `repetitive_prose` | `d2544673aafde381d44732562d438cd06565a466a73d4d870b20c5e08a77e3fe` | `658e6689ef37d763c66102870376385bf105c30e1c608c7d86fa263fb72529e1` | `98412d0bc89cd39136b581eacf7a02a57f711c4b4b7407a1f395a22d1375bcdb` |
+| `narrative_prose` | `74aaa3525e1203e03dd26dea4a753a1d3836ca205e325990e8633f22b5768fd5` | `686c0d89f3f9bec74ae3c548faf3fa2c0b313ca8924c9f0c2416a11f6c97b12f` | `720056b5d4fa562d4042525482363751c9c0b4b9998be06d83c86dfb10de6cc4` |
+| `technical_exposition` | `a78c8b7e5cd1fc6fe7a092328dafca9925c7ad487940c2de96b76df9b5356a95` | `6cb41a7b11378f53d95194813ced063fbd550a95866b1ee9c10ca2375b89469c` | `a98b382aeda74271f776a1d8d4f5fa4e5c974a63382c21bb0a33c9273d71aed3` |
+| `code_like` | `99fa8ec18a43006ec2f41f7b4cc691a775c77410713adf44fec3e5b0ea75c4b7` | `b9b95960afe007960454bf1a78665d4d9332564517464bce78b155226b997722` | `53c9270f4bd15582d2bfa41ec56bc1695046a179716ea8fe7b27e5b864e4ff01` |
+| `list_table` | `d91616050fc016fab0e7e5fac34c7ac6eac017cd3c2d89f4a2c549c077e52e61` | `7f8e21cf06b63bda989354f4c74457ee461fcbe8f1ec476e70d413f98cd12d3c` | `8272d9e74860a45e6e300f630661dc2455d17f36cf2f7a95f6eeb00f3db5e9ca` |
+| `dialogue_qa` | `9acb52a774d59e5484ae47760a4d991dd94af87ea8cb7642913fea2d8f4a2ea4` | `2b2ecb74ea7dc9d041be0f0ed7368bb4d6539ab6d6c49f56fc72bd6f93810b88` | `0098661f312dcbdfcf333ffc91170f90c81727292ce2143e77c2f14e090d2729` |
+| `mixed_sentence_lengths` | `9612825285b92ca8f5dad948c9755735370cd1e15762b14f74856371e4d1e02a` | `22441d6cad39fc364376c5cae2ec13e44c105be6862ee2d3e8edf3a4f22110a1` | `64c342b5772a33ec1e42fd9ba221a99251de2a8b1080283ce86f6474c519a88a` |
+| `symbolic_pattern` | `ed13132ca3566670ba1340c6edefae02763750bdd40183f03c5cb622632cab7d` | `d16064facf4c0259d61810d0ba548ec2dc7c19fd676b619ec2e9f6bc5ba6ef60` | `fc1aeb5421ff5d149a20991044f9adcfd9923c8791405095055b14d74d9513e5` |
+
+Before any held-out outcome was generated, eight independently authored inputs
+were frozen by UTF-8 text hash and pinned-tokenizer token-ID hash:
+
+| Held-out fixture | Structural purpose | Text SHA-256 | 512-token ID SHA-256 | 2,048-token ID SHA-256 |
+| --- | --- | --- | --- | --- |
+| `contract_cross_references` | legalistic clauses, definitions, exceptions, and cross-references | `997201f8c0f7ac784916d16e0a73c4db53f7c589609eb67bffa24507faf7441f` | `24f729c3de328a8eefa7d7d5b306d370b9c7e62f7aea5098d97cd001b3de5a2a` | `0a4180e77d4f766b917e33254ca591f4f2078f832fccf2e248a2b379cb0f5034` |
+| `lab_notebook` | timestamped measurements, interventions, and revisions | `33ccb08da60f8883384492c01f2dadf573bbd84bc3cb00dd7a1ff715bc26946a` | `b13ecb2e7dc2169b4b7a64efdca5f14a2a1b79dc2bc9a04db4d1664bd038ffd4` | `d171d9ad7ba50f2ca9f0b03a472940e4997b2856d684ea9f6209e6a1e53f5b78` |
+| `nested_configuration` | nested JSON-like objects, arrays, booleans, and overrides | `ff5be0b548073edecf576e5900bd2893384f5e251b82bcdfd7617a5d766ffbb5` | `f265fb20b213277f9562a5a05dd0535dcd1a422f7bacb0f1098b90d4213b01cc` | `f9d30bfa480234b0e22061cfa0e1f9ff7d6542cee3eaa3c5eee3af7d8a880789` |
+| `operations_log` | shell/service transcript, paths, status codes, and retries | `ed7f66e129c4f4b058f9ec1d66e456a674d97b34b5e002b4108d92f92511a548` | `330296e6912b60418d535c0118cf56817d2fe0d8d77cd5a0a607db8bf7e88494` | `cedd7d42c6a1da6788e05e96b0756ff52f25da2f92b0b6727e127ef150d304d0` |
+| `poetic_stanzas` | line-broken verse, imagery, rhyme, and refrain | `38f4921d0df36e92fc891ec971ce395b877a9bf2e576aa703c350334fb4b06f1` | `87efbf332765496aadd38f8a1f8447a8030942d3094a78369e76dec2a1738590` | `e19f9d80319586978a400fca3ae196dea9fa218ede628bb0ae4d960c90c08321` |
+| `mathematical_derivation` | assumptions, equations, substitutions, and boundary case | `cadd959690282a1fb55ba547d88c541d856b470e2911c13445843fbe99aed2f7` | `893f16b5802a1f9b2af4d2c9ddc6767c9f73e7650e0bc48b90a765b77232a693` | `9ca10f6d6e479bf942a013882a8b08296ed1837a209eaa3508a32a6716f633ed` |
+| `bilingual_glossary` | paired multilingual entries, grammar tags, and usage notes | `1ae634ecbbc9f1a51c57a732d84865ffaf93cef7398ae008a4a896108ab758e5` | `263b6f04db2fdb1b9d412ef022a7cf8888ea85c02f5e7a01438f44215c5f4e71` | `fdbbbba38a2ead76ac23b66f1bc7bf656138000b24ed011151c5b409dffddb9a` |
+| `incident_bulletins` | numbered bulletins, corrections, locations, and status changes | `868107d7dd006127694a10d7992352b82ee3bc470705516eda99067e06614a01` | `069a36a004560ab6199e8f608b82b8204dc91ea455dcd417c2d75be2d320833e` | `92c5dd5c433926f33d0cd973afa9201cdfe5335a80ad1b25c116dd66cbcb15d4` |
+
+The exact model inputs are constructed identically to development data:
+tokenize each authored fixture without special tokens, repeat independently,
+and truncate to exactly 512 or 2,048 tokens. Source and token locks are enforced
+by offline tests and by both feature and outcome collectors.
+
+### Frozen feature and predictor contract
+
+The model receives exactly: layer ID; head ID; causal context length; normalized
+query position; query L2 norm, mean, population standard deviation, maximum
+absolute value, and positive-sign fraction; key scalar mean and population
+standard deviation; mean and population standard deviation of per-key L2 norm;
+key maximum absolute value; mean-key-vector L2 norm; and query/mean-key cosine.
+Layer/head are one-hot encoded; all other features are standardized using
+development means/scales only.
+
+Query statistics cost `O(D)`. Key statistics require a running key-vector sum,
+element-square sum, key-norm sum/square-sum, absolute maximum, and token count.
+They are maintainable in `O(D)` per appended key and occupy `D+4` float32 values
+plus one int64 count per head (280 bytes at `D=64`). Every feature is available
+before retrieval and is strategy-independent. No Quest or PQ query outcome is a
+feature, and the feature function has no parameter for exact scores, Top-K,
+attention weights/entropy/mass, retrieval selections, recall, or output error.
+
+The learned model is budget-specific multinomial logistic regression implemented
+only with PyTorch. Targets are retrospective maximum-attention-mass winners;
+output-error winners are recorded only for analysis. Four L2 values
+`0, 1e-4, 1e-3, 1e-2` were compared by leave-one-development-fixture-out mean
+attention mass, not configuration accuracy. Selected L2 values were `1e-2`,
+`1e-4`, and `0` at 12.5%, 25%, and 50%; learning rate `0.05`, 250 epochs, and
+seed zero were then frozen. The development-selected best global configuration
+was Quest p64 at every partial budget, with development mean mass
+`0.643124/0.734611/0.830729`. Layer and layer/head lookups were also frozen from
+development data. The serialized freeze artifact SHA-256 is
+`57a00bbf5368ed96121f40140106ea3bd96282123f25479811c46d8fd58575a9`.
+
+Held-out outcomes had not been computed or inspected when this protocol,
+fixture content, hashes, features, hyperparameters, baselines, tie rule,
+failure thresholds, bootstrap method, and evidence decision criteria were
+frozen. Final evidence is reported below only after the one-time held-out run.
+
+The first post-hoc evaluation artifact contained all oracle values in its raw
+prediction rows but omitted an explicit top-level oracle baseline summary and
+pooled the layer-23 failure block across budgets. This was a reporting-only
+omission found during result audit: it did not affect fixtures, features,
+weights, predictions, outcomes, regret values, costs, or the frozen decision.
+A versioned second analysis artifact adds those summaries from the same
+immutable held-out outcome file. The model forward and retrieval matrix were
+not rerun.
+
+### Held-out execution and results
+
+The one-time held-out matrix produced 3,072 unique observations per budget and
+61,440 retrieval records including exact Top-K and the 100% control. All
+192/192 independent full-attention reconstructions passed, and all 15,360
+full-budget per-head invariants passed. The immutable held-out feature and
+outcome SHA-256 values are respectively
+`d09b06bbe225bdfda0c1fb9aa794ba0e3fe999028630695639045b5d4f302067`
+and `af8233d85e4679264ce5c16973f614f250bfa17a042ffc5bc37751467013e67a`.
+The complete versioned evaluation artifact SHA-256 is
+`5df19fc6330631bafa9ee054414f70d31a01ae2dd3dca301d4f678c8694e91ad`.
+
+The development-selected layer choices were p64/p16/p64 for layers 0/12/23 at
+12.5%; M4/C8, p16, and p64 at 25%; and the same M4/C8, p16, and p64 choices at
+50%. The layer/head lookup selected all four configurations: across the 48
+layer/head identities its p16/p64/M2C4/M4C8 counts were `6/29/1/12`,
+`6/20/2/20`, and `8/9/2/29` at the three budgets.
+
+Held-out mean metrics show the complete adaptivity chain. Error is per-head
+relative attention-output error; mass/error regret use the retrospective
+maximum-mass/minimum-error oracles respectively. Gap recovery uses group means
+relative to the development-selected global fixed baseline.
+
+| Budget | Selector | Attention mass | Output error | Mass regret | Error regret | Fixed-to-mass-oracle gap recovered |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 12.5% | global p64 | 0.5785 | 0.7192 | 0.1559 | 0.3714 | 0.0% |
+| 12.5% | layer fixed | 0.5989 | 0.6643 | 0.1355 | 0.3165 | 13.1% |
+| 12.5% | layer/head fixed | 0.6337 | 0.6298 | 0.1007 | 0.2820 | 35.4% |
+| 12.5% | learned cheap features | 0.5897 | 0.7584 | 0.1447 | 0.4106 | 7.2% |
+| 12.5% | retrospective mass oracle | 0.7344 | 0.4137 | 0 | 0.0659 | 100% |
+| 12.5% | retrospective error oracle | 0.7129 | 0.3478 | 0.0215 | 0 | 86.2% |
+| 25% | global p64 | 0.6977 | 0.4608 | 0.1483 | 0.2742 | 0.0% |
+| 25% | layer fixed | 0.7299 | 0.4456 | 0.1161 | 0.2591 | 21.7% |
+| 25% | layer/head fixed | 0.7606 | 0.3961 | 0.0854 | 0.2096 | 42.4% |
+| 25% | learned cheap features | 0.7157 | 0.5376 | 0.1303 | 0.3510 | 12.1% |
+| 25% | retrospective mass oracle | 0.8460 | 0.2203 | 0 | 0.0338 | 100% |
+| 25% | retrospective error oracle | 0.8279 | 0.1865 | 0.0181 | 0 | 87.8% |
+| 50% | global p64 | 0.8122 | 0.2638 | 0.1354 | 0.2020 | 0.0% |
+| 50% | layer fixed | 0.8536 | 0.2328 | 0.0939 | 0.1710 | 30.6% |
+| 50% | layer/head fixed | 0.8885 | 0.1896 | 0.0591 | 0.1278 | 56.4% |
+| 50% | learned cheap features | 0.8387 | 0.3363 | 0.1089 | 0.2746 | 19.6% |
+| 50% | retrospective mass oracle | 0.9476 | 0.0716 | 0 | 0.0098 | 100% |
+| 50% | retrospective error oracle | 0.9370 | 0.0618 | 0.0105 | 0 | 92.2% |
+
+Distributions remain highly skewed. Learned-policy mass-regret
+mean/median/p90 was `0.1447/0.000002/0.6601`,
+`0.1303/0/0.5849`, and `0.1089/0/0.5362` as budget increased. Error-regret
+mean/median/p90 was `0.4106/~0/1.1861`, `0.3510/0.00318/0.8783`, and
+`0.2746/0.000118/0.5357`. Thus many wrong configuration labels were harmless,
+but a smaller set of near-total misses dominated the means.
+
+Fixture-cluster bootstrap 95% intervals for learned mean attention mass were
+`[0.5571, 0.6260]`, `[0.6947, 0.7335]`, and `[0.8221, 0.8540]`; intervals for
+mean mass regret were `[0.1252, 0.1639]`, `[0.1207, 0.1401]`, and
+`[0.0935, 0.1237]`. More importantly, learned-minus-layer/head mean mass was
+`-0.0440`, `-0.0449`, and `-0.0498`, with fixture-cluster 95% intervals
+`[-0.0531,-0.0347]`, `[-0.0534,-0.0381]`, and `[-0.0681,-0.0290]`.
+Cheap query-dependent features therefore failed to beat head identity at every
+budget; they were materially worse.
+
+Layer 23 remained the central failure. Learned mass/error and mass/error regret
+were `0.4246/1.5256` and `0.2855/0.9822` at 12.5%, `0.5640/1.0545` and
+`0.2741/0.7837` at 25%, and `0.6789/0.7499` and `0.2738/0.6837` at 50%.
+For the three difficult heads selected using development data only (heads 15,
+1, and 4), learned mass was `0.2804/0.5465/0.7018` and mean mass regret was
+`0.3412/0.2358/0.2340`. Applying the development-frozen normalized-entropy
+threshold post hoc, low-entropy layer-23 mean mass regret remained
+`0.2934/0.2760/0.2712`; exact entropy never entered prediction.
+
+Across all budgets, the learned model disagreed with the retrospective mass
+oracle in 4,603/9,216 observations. Of those, 1,588 had mass regret at most
+0.01, while 1,941 total predictions lost at least 0.10 mass. Failures were
+distributed across every fixture and position, but mean regret was highest for
+heads 10, 8, and 4 (`0.192/0.182/0.181`), for the bilingual glossary and
+mathematical derivation fixtures (`0.144/0.141`), and at 50%/25% query position
+(`0.134/0.133`). This is not a single-text or final-position artifact.
+
+### Cost and index coexistence
+
+On this unoptimized CPU/Python reference path, maintained-state query feature
+extraction for all 16 heads had median 386.6 microseconds. Logistic prediction
+had median about 3.7 microseconds per head (about 59 microseconds for 16 heads),
+for an estimated combined 446 microseconds per layer/query batch. Median
+candidate retrieval was 282.6 microseconds, so feature plus prediction cost was
+158% of measured retrieval time and failed the frozen 10% overhead criterion.
+The `O(H*S*D)` prefix-statistic reconstruction used only to measure the
+experiment is not an inference requirement; the maintained state costs 280
+bytes/head, 4,480 bytes/layer, or 107,520 bytes for all 24 layers.
+
+Reference index bytes, excluding shared full-precision KV, were:
+
+| Context/model scope | Quest p16+p64 | PQ M2/C4+M4/C8 actual / logical packed | All four actual / logical packed |
+| --- | ---: | ---: | ---: |
+| 512, one layer/16 heads | 327,680 | 442,368 / 65,536 | 770,048 / 393,216 |
+| 512, 24 layers | 7,864,320 | 10,616,832 / 1,572,864 | 18,481,152 / 9,437,184 |
+| 2,048, one layer/16 heads | 1,310,720 | 1,622,016 / 114,688 | 2,932,736 / 1,425,408 |
+| 2,048, 24 layers | 31,457,280 | 38,928,384 / 2,752,512 | 70,385,664 / 34,209,792 |
+
+Model A, which can choose all four configurations, requires both Quest indexes
+and both PQ indexes resident. Model B can retain only the Quest pair, only the
+PQ pair, or a smaller individual subset at the corresponding table cost, but
+cannot make the omitted choices. Actual reference PQ codes are int64; logical
+figures assume packed 2-bit M2/C4 and 3-bit M4/C8 codes. No index lifecycle or
+switching infrastructure was implemented; dispatch alone is included in
+prediction timing.
+
+### Evidence decision and next experiment
+
+The fixed-to-oracle mass opportunity remained material at
+`0.1559/0.1483/0.1354`. Layer/head identity recovered only
+`35.4%/42.4%/56.4%`, below the preregistered 75% static-policy criterion, while
+the learned features recovered only `7.2%/12.1%/19.6%`, lost to layer/head at
+every budget, and exceeded the overhead limit. The frozen classification is
+therefore **D — ORACLE GAP NOT PREDICTABLE WITH CHEAP FEATURES**.
+
+No adaptive planner is justified now. No shared KVDB abstraction, Quest/PQ
+implementation, or public/core policy type changed.
+
+The exact proposed next experiment is one final preregistered metadata-only
+feasibility check on another newly locked eight-fixture test set: retain this
+same candidate matrix and general features, add only precomputed resident-index
+summaries that require no query retrieval (Quest min/max-range moments at p16
+and p64; PQ centroid occupancy and build-time reconstruction-error summaries at
+M2/C4 and M4/C8), impose a hard 10% retrieval-latency feature-cost ceiling, and
+train/select on development plus the now-spent held-out set while evaluating
+once on the new lock. If that test does not beat the layer/head lookup by at
+least 0.01 mean mass with a positive fixture-cluster 95% lower bound at two
+budgets, stop query-adaptive policy work and retain fixed/static research
+baselines only. This next experiment has not been started.
+
 ## PQCache
 
 ### Sources and attribution

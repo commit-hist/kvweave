@@ -16,7 +16,6 @@ from typing import Any, Iterable
 import torch
 
 from benchmarks.phase3a import (
-    TEXT_FIXTURES,
     QueryPosition,
     TextFixture,
     aggregate_quest_bound_looseness,
@@ -26,6 +25,11 @@ from benchmarks.phase3a import (
     canonicalize_selection_for_attention,
     pq_score_approximation_metrics,
     quest_bound_quality,
+)
+from benchmarks.policy_feasibility import (
+    FIXTURE_SPLITS,
+    validate_fixture_lock,
+    validate_tokenized_fixture_lock,
 )
 from kvdb import BruteForceIndex, PQIndex, QuestIndex, TensorStorage
 from kvdb.core.types import Selection
@@ -74,9 +78,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-id", default=DEFAULT_MODEL_ID)
     parser.add_argument("--model-revision", default=DEFAULT_MODEL_REVISION)
     parser.add_argument(
+        "--fixture-split",
+        choices=sorted(FIXTURE_SPLITS),
+        default="development",
+    )
+    parser.add_argument(
         "--fixture-ids",
         nargs="+",
-        default=[fixture.fixture_id for fixture in TEXT_FIXTURES],
+        default=None,
     )
     parser.add_argument(
         "--sequence-lengths",
@@ -131,8 +140,14 @@ def parse_pq_configurations(values: list[str]) -> list[tuple[int, int]]:
     return configurations
 
 
-def selected_fixtures(fixture_ids: list[str]) -> tuple[TextFixture, ...]:
-    available = {fixture.fixture_id: fixture for fixture in TEXT_FIXTURES}
+def selected_fixtures(
+    split: str,
+    fixture_ids: list[str] | None,
+) -> tuple[TextFixture, ...]:
+    fixtures = FIXTURE_SPLITS[split]
+    available = {fixture.fixture_id: fixture for fixture in fixtures}
+    if fixture_ids is None:
+        fixture_ids = [fixture.fixture_id for fixture in fixtures]
     if not fixture_ids:
         raise ValueError("at least one fixture ID is required")
     if len(set(fixture_ids)) != len(fixture_ids):
@@ -173,7 +188,11 @@ def validate_args(
     )
     if any(tolerance < 0 for tolerance in tolerances):
         raise ValueError("floating-point tolerances must be non-negative")
-    return selected_fixtures(args.fixture_ids), parse_pq_configurations(args.pq_configs)
+    validate_fixture_lock(args.fixture_split)
+    return selected_fixtures(
+        args.fixture_split,
+        args.fixture_ids,
+    ), parse_pq_configurations(args.pq_configs)
 
 
 def git_value(*arguments: str) -> str:
@@ -1328,6 +1347,12 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
                 fixture,
                 sequence_length,
             )
+            validate_tokenized_fixture_lock(
+                args.fixture_split,
+                fixture,
+                sequence_length,
+                tokenized,
+            )
             input_metadata.append(
                 {
                     "text_fixture_id": fixture.fixture_id,
@@ -1622,6 +1647,7 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
         },
         "architecture": asdict(architecture),
         "input": {
+            "fixture_split": args.fixture_split,
             "method": (
                 "each locally authored fixture is tokenized independently, repeated, "
                 "and deterministically truncated to the exact requested length"
@@ -1767,6 +1793,10 @@ def print_summary(result: dict[str, Any]) -> None:
 
 def main() -> None:
     args = parse_args()
+    if args.fixture_split == "held_out" and args.output.exists():
+        raise FileExistsError(
+            f"refusing to overwrite locked held-out artifact: {args.output}"
+        )
     result = run_experiment(args)
     print_summary(result)
     args.output.parent.mkdir(parents=True, exist_ok=True)

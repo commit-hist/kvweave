@@ -47,3 +47,23 @@ run = "pants run benchmarks/scripts:real_model_reference --"
 [tasks."bench:phase3a-replication"]
 description = "Run the multi-text, multi-position Pythia Phase 3A replication"
 run = "pants run benchmarks/scripts:phase3a_replication --"
+
+[tasks."bench:phase3a-policy-development-features"]
+description = "Collect locked pre-retrieval features on development fixtures"
+run = "pants run benchmarks/scripts:phase3a_policy_features -- --fixture-split development"
+
+[tasks."bench:phase3a-policy-freeze"]
+description = "Select and freeze the policy-feasibility model on development data"
+run = "pants run benchmarks/scripts:phase3a_policy_feasibility -- freeze"
+
+[tasks."bench:phase3a-policy-heldout-features"]
+description = "Collect locked pre-retrieval features on held-out fixtures once"
+run = "pants run benchmarks/scripts:phase3a_policy_features -- --fixture-split held_out"
+
+[tasks."bench:phase3a-policy-heldout-outcomes"]
+description = "Run the frozen four-candidate matrix on held-out fixtures once"
+run = "pants run benchmarks/scripts:phase3a_replication -- --fixture-split held_out --output benchmarks/results/pythia-410m-phase3a-policy-held-out-outcomes.json"
+
+[tasks."bench:phase3a-policy-evaluate"]
+description = "Apply the development-frozen model to locked held-out outcomes"
+run = "pants run benchmarks/scripts:phase3a_policy_feasibility -- evaluate"

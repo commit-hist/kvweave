@@ -141,3 +141,42 @@ retrieval diagnostics; selected token IDs are sorted into causal order before
 the mathematically permutation-invariant attention reduction so float32
 reduction order cannot create a false full-budget failure. The benchmark still
 makes no generation, downstream-quality, optimized-latency, or speed claim.
+
+## Phase 3A policy-feasibility validation
+
+This is an experimental, non-public benchmark workflow. It does not add a
+planner, policy, router, or adaptive-index API. The accepted eight replication
+fixtures remain development data. Eight separately authored fixtures and their
+pinned-tokenizer hashes are locked in `benchmarks/policy_feasibility.py` before
+held-out retrieval outcomes are generated.
+
+The staged commands are intentionally separate:
+
+```bash
+mise run bench:phase3a-policy-development-features
+mise run bench:phase3a-policy-freeze
+mise run bench:phase3a-policy-heldout-features
+mise run bench:phase3a-policy-heldout-outcomes
+mise run bench:phase3a-policy-evaluate
+```
+
+The freeze step joins legal pre-retrieval features to the accepted development
+outcomes, selects logistic-regression regularization by leave-one-development-
+fixture-out attention mass, and serializes weights, standardization values,
+fixed baselines, hashes, and tie rules. Held-out feature, outcome, freeze, and
+evaluation commands refuse to overwrite their artifacts. A rerun after a real
+evaluation-invalidating bug therefore requires an explicit artifact disposition
+and written explanation rather than silently replacing evidence.
+
+The legal feature set contains layer/head identity, causal length, normalized
+query position, five query-vector summaries, six incrementally maintainable key
+summaries, and the cosine between the query and maintained mean-key vector. The
+extractor cannot accept exact token scores, exact Top-K, attention weights,
+retrieval selections, recall, attention mass, or output error. Those values are
+joined only after prediction for labels and analysis.
+
+All artifacts are written under the gitignored `benchmarks/results/` directory.
+The workflow retains the exact pinned Pythia/Transformers extraction, RoPE,
+causal slicing, attention reconstruction, Quest, and PQ setup from structural
+replication. It reports policy regret and cost; it makes no decode, generation,
+downstream-quality, optimized-latency, or production-performance claim.

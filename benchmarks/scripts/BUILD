@@ -24,3 +24,13 @@ pex_binary(
     name="phase3a_replication",
     entry_point="phase3a_replication.py",
 )
+
+pex_binary(
+    name="phase3a_policy_features",
+    entry_point="phase3a_policy_features.py",
+)
+
+pex_binary(
+    name="phase3a_policy_feasibility",
+    entry_point="phase3a_policy_feasibility.py",
+)
