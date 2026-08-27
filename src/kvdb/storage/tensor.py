@@ -2,7 +2,7 @@
 
 import torch
 
-from kvdb.core.types import Selection, validate_kv_tensors
+from kvdb.core.types import RetrievedKV, Selection, validate_kv_tensors
 
 
 class TensorStorage:
@@ -18,8 +18,8 @@ class TensorStorage:
         self._keys = keys
         self._values = values
 
-    def fetch(self, selection: Selection) -> tuple[torch.Tensor, torch.Tensor]:
-        """Gather selected tokens along the canonical sequence dimension."""
+    def fetch(self, selection: Selection) -> RetrievedKV:
+        """Gather selected tokens and preserve rectangular validity."""
         if self._keys is None or self._values is None:
             raise RuntimeError("put must be called before fetch")
 
@@ -31,13 +31,28 @@ class TensorStorage:
             )
         if indices.device != self._keys.device:
             raise ValueError("selection indices and stored tensors must share a device")
-        if torch.any(indices >= self._keys.shape[2]).item():
+        if selection.valid_mask is None:
+            safe_indices = indices
+        else:
+            safe_indices = torch.where(
+                selection.valid_mask,
+                indices,
+                torch.zeros_like(indices),
+            )
+        if torch.any(safe_indices >= self._keys.shape[2]).item():
             raise IndexError("selection index exceeds the stored sequence length")
 
-        gather_indices = indices.unsqueeze(-1).expand(
-            *indices.shape,
+        gather_indices = safe_indices.unsqueeze(-1).expand(
+            *safe_indices.shape,
             self._keys.shape[-1],
         )
         selected_keys = torch.gather(self._keys, dim=2, index=gather_indices)
         selected_values = torch.gather(self._values, dim=2, index=gather_indices)
-        return selected_keys, selected_values
+        valid_mask = selection.valid_mask
+        if valid_mask is not None and torch.all(valid_mask).item():
+            valid_mask = None
+        return RetrievedKV(
+            keys=selected_keys,
+            values=selected_values,
+            valid_mask=valid_mask,
+        )

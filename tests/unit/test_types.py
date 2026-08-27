@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from kvdb.core.types import Selection, validate_kv_tensors
+from kvdb.core.types import RetrievedKV, Selection, validate_kv_tensors
 
 
 def test_selection_accepts_canonical_shape() -> None:
@@ -37,6 +37,76 @@ def test_selection_rejects_mismatched_scores() -> None:
 
     with pytest.raises(ValueError, match="scores must match"):
         Selection(indices=indices, scores=torch.ones(1, 1, 1))
+
+
+def test_selection_reports_masked_valid_token_counts() -> None:
+    selection = Selection(
+        indices=torch.tensor([[[2, 0, 0]], [[1, 3, 4]]]),
+        valid_mask=torch.tensor([[[True, True, False]], [[True, True, True]]]),
+    )
+
+    torch.testing.assert_close(
+        selection.valid_token_counts,
+        torch.tensor([[2], [3]]),
+    )
+
+
+@pytest.mark.parametrize(
+    ("valid_mask", "error_type"),
+    [
+        (torch.ones(1, 1, 3), TypeError),
+        (torch.ones(1, 1, 2, dtype=torch.bool), ValueError),
+        (torch.zeros(1, 1, 3, dtype=torch.bool), ValueError),
+    ],
+)
+def test_selection_rejects_invalid_valid_mask(
+    valid_mask: torch.Tensor,
+    error_type: type[Exception],
+) -> None:
+    with pytest.raises(error_type):
+        Selection(
+            indices=torch.tensor([[[0, 1, 2]]]),
+            valid_mask=valid_mask,
+        )
+
+
+def test_retrieved_kv_accepts_dense_and_masked_tensors() -> None:
+    keys = torch.randn(1, 2, 3, 4)
+    values = torch.randn(1, 2, 3, 4)
+    valid_mask = torch.tensor(
+        [[[True, True, False], [True, True, True]]],
+    )
+
+    dense = RetrievedKV(keys=keys, values=values)
+    masked = RetrievedKV(keys=keys, values=values, valid_mask=valid_mask)
+
+    assert dense.valid_mask is None
+    assert masked.valid_mask is valid_mask
+
+
+@pytest.mark.parametrize(
+    ("valid_mask", "error_type", "message"),
+    [
+        (torch.ones(1, 2, 2, dtype=torch.bool), ValueError, "shape"),
+        (torch.ones(1, 2, 3), TypeError, "torch.bool"),
+        (
+            torch.tensor([[[True, False, False], [False, False, False]]]),
+            ValueError,
+            "at least one valid token",
+        ),
+    ],
+)
+def test_retrieved_kv_rejects_invalid_valid_mask(
+    valid_mask: torch.Tensor,
+    error_type: type[Exception],
+    message: str,
+) -> None:
+    with pytest.raises(error_type, match=message):
+        RetrievedKV(
+            keys=torch.randn(1, 2, 3, 4),
+            values=torch.randn(1, 2, 3, 4),
+            valid_mask=valid_mask,
+        )
 
 
 def test_kv_validation_accepts_canonical_layout() -> None:

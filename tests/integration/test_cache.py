@@ -1,7 +1,8 @@
 import pytest
 import torch
 
-from kvdb import BruteForceIndex, KVCache, TensorStorage
+from kvdb import BruteForceIndex, KVCache, QuestIndex, TensorStorage
+from kvdb.indexes.quest.reference import selected_attention
 
 
 def test_cache_build_retrieve_interaction() -> None:
@@ -14,13 +15,14 @@ def test_cache_build_retrieve_interaction() -> None:
     cache = KVCache(index=BruteForceIndex(), storage=TensorStorage())
     cache.build(keys, values)
 
-    selected_keys, selected_values = cache.retrieve(
+    retrieved = cache.retrieve(
         query=torch.tensor([[[1.0, 0.0]]]),
         budget=2,
     )
 
-    torch.testing.assert_close(selected_keys, keys[:, :, [2, 0], :])
-    torch.testing.assert_close(selected_values, values[:, :, [2, 0], :])
+    assert retrieved.valid_mask is None
+    torch.testing.assert_close(retrieved.keys, keys[:, :, [2, 0], :])
+    torch.testing.assert_close(retrieved.values, values[:, :, [2, 0], :])
 
 
 def test_cache_retrieve_before_build_fails() -> None:
@@ -35,3 +37,63 @@ def test_cache_build_rejects_mismatched_kv() -> None:
 
     with pytest.raises(ValueError, match="identical shapes"):
         cache.build(torch.randn(1, 1, 3, 2), torch.randn(1, 1, 4, 2))
+
+
+def test_cache_accepts_uniform_quest_page_selection() -> None:
+    keys = torch.tensor(
+        [[[[3.0, 0.0], [2.0, 0.0], [0.0, 1.0], [0.0, -1.0]]]]
+    )
+    values = keys + 10.0
+    cache = KVCache(index=QuestIndex(page_size=2), storage=TensorStorage())
+    cache.build(keys, values)
+
+    retrieved = cache.retrieve(
+        query=torch.tensor([[[1.0, 0.0]]]),
+        budget=2,
+    )
+
+    assert retrieved.valid_mask is None
+    torch.testing.assert_close(retrieved.keys, keys[:, :, [0, 1], :])
+    torch.testing.assert_close(retrieved.values, values[:, :, [0, 1], :])
+
+
+def test_ragged_quest_selection_survives_storage_cache_and_attention() -> None:
+    sequence_length = 65
+    page_size = 8
+    keys = torch.zeros(1, 2, sequence_length, 2)
+    keys[0, 0, 64, 0] = 10.0
+    keys[0, 1, :page_size, 0] = 10.0
+    keys[0, 1, 64, 0] = -10.0
+    values = torch.arange(
+        1 * 2 * sequence_length * 2,
+        dtype=torch.float32,
+    ).reshape(1, 2, sequence_length, 2)
+    query = torch.tensor([[[1.0, 0.0], [1.0, 0.0]]])
+    index = QuestIndex(page_size=page_size)
+    storage = TensorStorage()
+    cache = KVCache(index=index, storage=storage)
+    cache.build(keys, values)
+
+    selection = index.search(query, budget=page_size)
+    fetched = storage.fetch(selection)
+    retrieved = cache.retrieve(query, budget=page_size)
+
+    assert selection.valid_mask is not None
+    torch.testing.assert_close(selection.valid_token_counts, torch.tensor([[1, 8]]))
+    assert fetched.valid_mask is not None
+    assert retrieved.valid_mask is not None
+    torch.testing.assert_close(retrieved.valid_mask, fetched.valid_mask)
+    torch.testing.assert_close(retrieved.keys, fetched.keys)
+    torch.testing.assert_close(retrieved.values, fetched.values)
+    output = selected_attention(
+        query,
+        retrieved.keys,
+        retrieved.values,
+        retrieved.valid_mask,
+    )
+
+    torch.testing.assert_close(output[0, 0], values[0, 0, 64])
+    torch.testing.assert_close(
+        output[0, 1],
+        values[0, 1, :page_size].mean(dim=0),
+    )

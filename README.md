@@ -10,7 +10,7 @@ KVDB is currently validating whether storage and retrieval strategies can share
 a small interface without erasing the properties that make each strategy
 useful. It is not an inference framework.
 
-## Phase 0 foundation
+## Phase 1 reference validation
 
 The initial internal KV layout is:
 
@@ -18,14 +18,15 @@ The initial internal KV layout is:
 [B, Hkv, S, D]
 ```
 
-The current decode-query layout is `[B, Hkv, D]`. Selection indices and scores
-use `[B, Hkv, K]`, so each batch item and KV head receives its own token
-selection. Model-native layouts and grouped-query attention will be handled by
-future integration code, not by the core package.
+The current decode-query layout is `[B, Hkv, D]`. Selection indices, scores, and
+optional validity masks use `[B, Hkv, K]`, so each batch item and KV head
+receives its own token selection. Model-native layouts and grouped-query
+attention will be handled by future integration code, not by the core package.
 
-The only retrieval implementation in this phase is an exact dot-product Top-K
-oracle over synthetic or caller-provided tensors. Quest and PQ retrieval are not
-implemented yet.
+Current retrieval implementations are an exact dot-product Top-K oracle and an
+independent readable PyTorch Quest-style page index. Both operate on synthetic
+or caller-provided tensors through the same `KVIndex` interface. PQ retrieval is
+not implemented yet.
 
 ## Development
 
@@ -33,8 +34,11 @@ implemented yet.
 python -m pip install -e '.[test]'
 pytest
 python benchmarks/scripts/brute_force.py
+python benchmarks/scripts/quest_reference.py
 ```
 
-The benchmark is a smoke test for the harness. Its output is not a performance
-claim. Quest research provenance and the independent implementation boundary
-are recorded in `docs/RESEARCH.md`.
+The brute-force script is a harness smoke test. The Quest script compares exact
+Top-K/full attention with page selection/selected attention on deterministic
+synthetic tensors. Their output is not a performance or model-quality claim.
+Quest research provenance and the independent implementation boundary are
+recorded in `docs/RESEARCH.md`.

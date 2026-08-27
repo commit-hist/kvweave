@@ -116,52 +116,74 @@ derivation.
 
 ### KVDB implementation status
 
-No Quest implementation exists in KVDB yet. The next reference implementation
-will be independently written in readable PyTorch from the paper's mathematical
-description. Upstream behavior will be used only to identify tests and explicit
-policy decisions. The implementation must retain paper/repository attribution
-in documentation and must not imply that KVDB originated Quest.
+KVDB now has an independent, readable PyTorch Quest-style reference index based
+on the paper's mathematical description. No upstream Quest source code, CUDA
+kernels, model forks, cache-management code, or evaluation helpers were copied.
+Quest remains attributed to Tang et al.; the official upstream implementation
+is MIT licensed as recorded above. KVDB's code is an independent implementation,
+not a port or claim of algorithmic originality.
 
-### Proposed independent reference plan
+Implemented and model-download-free validated behavior includes:
 
-1. Add a page-partition helper for canonical keys `[B, Hkv, S, D]`, including a
+- batch-aware page min/max metadata `[B, Hkv, P, D]`, including partial tails;
+- the paper's sign-aware upper-bound page score and a per-token invariant test;
+- positive token budgets rounded up with `ceil(budget / page_size)`;
+- deterministic per-batch/per-KV-head page selection and valid token expansion;
+- candidate recall against exact raw-dot-product Top-K; and
+- ordinary selected-token attention compared with full synthetic attention.
+
+The reference tie policy is descending page score, then ascending page ID, with
+ascending token IDs within each ranked page. This is a KVDB reproducibility
+choice; upstream tie compatibility has not been established.
+
+KVDB's paper-level index differs deliberately from observed upstream runtime
+policies. It does not force-include the newest page, keep early transformer
+layers dense, decide where RoPE or incremental metadata updates occur, impose an
+upstream evaluation minimum page count, or aggregate GQA query heads. Those are
+future integration/runtime choices. Phase 1 accepts exactly one query per KV
+head with query shape `[B, Hkv, D]`.
+
+Synthetic candidate recall and attention-output error validate implementation
+behavior only. They are not evidence of model quality, end-to-end inference
+speed, or reproduction of the paper's reported performance.
+
+### Independent reference plan status
+
+1. **Complete:** Add a page-partition helper for canonical keys `[B, Hkv, S, D]`, including a
    final partial page without synthetic tokens affecting its extrema.
-2. Add `QuestMetadata` containing `minimum` and `maximum` tensors with shape
+2. **Complete:** Add `QuestMetadata` containing `minimum` and `maximum` tensors with shape
    `[B, Hkv, P, D]`, plus `page_size` and the original sequence length.
-3. Build metadata with readable PyTorch reductions only. Validate it against a
+3. **Complete:** Build metadata with readable PyTorch reductions only. Validate it against a
    slow loop oracle on small tensors and test partial pages explicitly.
-4. Accept decode queries `[B, Hkv, D]` and calculate the paper's sign-aware page
+4. **Complete:** Accept decode queries `[B, Hkv, D]` and calculate the paper's sign-aware page
    upper bound independently. Test the bound against every exact token score in
    each page.
-5. Convert a token budget into pages with a documented policy. Proposed Phase 1
+5. **Complete:** Convert a token budget into pages with the reviewed Phase 1
    policy: require a positive budget, select `ceil(budget / page_size)` pages,
    clamp at the number of pages, and report all tokens in selected pages. This
    makes page granularity explicit instead of silently promising an exact token
    count.
-6. Select pages independently for every batch item and KV head, expand page IDs
+6. **Complete:** Select pages independently for every batch item and KV head, expand page IDs
    to valid token IDs, remove indices beyond `S` from the partial page, and
    return the existing token-level `Selection` representation.
-7. Keep tail-page inclusion, dense early layers, RoPE placement, and GQA outside
+7. **Complete:** Keep tail-page inclusion, dense early layers, RoPE placement, and GQA outside
    the core estimator initially. Add tail-page inclusion later as an explicit
    retrieval policy if model-level experiments show it is needed.
-8. Add correctness tests for shapes, signs, ties, partial pages, budgets,
+8. **Complete:** Add correctness tests for shapes, signs, ties, partial pages, budgets,
    per-head independence, upper-bound validity, and full-budget recovery.
-9. Compare selected-token recall against `BruteForceIndex`, then compare sparse
+9. **Complete:** Compare selected-token recall against `BruteForceIndex`, then compare sparse
    attention output against full attention. Verify that increasing budgets
    reaches full-attention behavior at the full-page budget.
-10. Add a full-vs-Quest synthetic benchmark reporting build time, metadata size,
+10. **Complete:** Add a full-vs-Quest synthetic benchmark reporting build time, metadata size,
     retrieval latency, selected-token/page recall, attention-output error, and
     relevant tensor/hardware configuration. Do not optimize until those results
     are reproducible and reviewed.
 
-### Open questions for plan review
+### Reviewed Phase 1 decisions
 
-- Should the reference policy always include the newest page, matching the
-  optimized upstream decode path, or should that remain a separately measured
-  policy?
-- Should a non-page-aligned token budget round up (proposed), round down as the
-  optimized upstream controller does, or be rejected? Any choice means actual
-  selected tokens can differ from the requested budget at page granularity.
-- When GQA is introduced, should each query head select pages independently, or
-  should query heads in one KV group share/merge a selection? The Phase 1 core
-  should not decide this without model-level evidence.
+- The newest/partial page is ranked normally; forced tail inclusion remains a
+  separately measurable future decode policy.
+- Non-page-aligned positive token budgets round up to pages, and actual valid
+  candidate counts are reported separately.
+- GQA remains out of scope. Future model-level evidence must determine whether
+  query heads select independently or share/merge selection within KV groups.

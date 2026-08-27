@@ -63,12 +63,15 @@ def validate_budget(budget: int, sequence_length: int) -> None:
 class Selection:
     """Per-batch, per-head token selection.
 
-    ``indices`` and optional ``scores`` have shape ``[B, Hkv, K]``. Indices
-    address the sequence dimension of canonical KV tensors.
+    ``indices``, optional ``scores``, and optional ``valid_mask`` have shape
+    ``[B, Hkv, K]``. Indices address the sequence dimension of canonical KV
+    tensors. A false mask entry marks a rectangular-layout placeholder and is
+    not part of the semantic selection.
     """
 
     indices: torch.Tensor
     scores: torch.Tensor | None = None
+    valid_mask: torch.Tensor | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.indices, torch.Tensor):
@@ -82,13 +85,78 @@ class Selection:
         if torch.any(self.indices < 0).item():
             raise ValueError("selection indices must be non-negative")
 
-        if self.scores is None:
+        if self.scores is not None:
+            if not isinstance(self.scores, torch.Tensor):
+                raise TypeError("selection scores must be a torch.Tensor or None")
+            if self.scores.shape != self.indices.shape:
+                raise ValueError("selection scores must match the indices shape")
+            if not torch.is_floating_point(self.scores):
+                raise TypeError("selection scores must use a floating-point dtype")
+            if self.scores.device != self.indices.device:
+                raise ValueError(
+                    "selection scores and indices must be on the same device"
+                )
+
+        if self.valid_mask is not None:
+            if not isinstance(self.valid_mask, torch.Tensor):
+                raise TypeError("selection valid_mask must be a torch.Tensor or None")
+            if self.valid_mask.shape != self.indices.shape:
+                raise ValueError("selection valid_mask must match the indices shape")
+            if self.valid_mask.dtype != torch.bool:
+                raise TypeError("selection valid_mask must use torch.bool")
+            if self.valid_mask.device != self.indices.device:
+                raise ValueError(
+                    "selection valid_mask and indices must be on the same device"
+                )
+            if not torch.all(self.valid_mask.any(dim=-1)).item():
+                raise ValueError(
+                    "selection must contain at least one valid token per batch/head"
+                )
+
+    @property
+    def valid_token_counts(self) -> torch.Tensor:
+        """Return actual selected-token counts with shape ``[B, Hkv]``."""
+        if self.valid_mask is None:
+            return torch.full(
+                self.indices.shape[:2],
+                self.indices.shape[-1],
+                dtype=torch.int64,
+                device=self.indices.device,
+            )
+        return self.valid_mask.sum(dim=-1)
+
+
+@dataclass(frozen=True)
+class RetrievedKV:
+    """Rectangular KV tensors returned by storage.
+
+    ``keys`` and ``values`` have shape ``[B, Hkv, K, D]``. When present,
+    ``valid_mask`` has shape ``[B, Hkv, K]`` and false entries identify
+    rectangular padding that must not participate in attention. A missing mask
+    means every retrieved position is valid.
+    """
+
+    keys: torch.Tensor
+    values: torch.Tensor
+    valid_mask: torch.Tensor | None = None
+
+    def __post_init__(self) -> None:
+        validate_kv_tensors(self.keys, self.values)
+        if self.valid_mask is None:
             return
-        if not isinstance(self.scores, torch.Tensor):
-            raise TypeError("selection scores must be a torch.Tensor or None")
-        if self.scores.shape != self.indices.shape:
-            raise ValueError("selection scores must match the indices shape")
-        if not torch.is_floating_point(self.scores):
-            raise TypeError("selection scores must use a floating-point dtype")
-        if self.scores.device != self.indices.device:
-            raise ValueError("selection scores and indices must be on the same device")
+        if not isinstance(self.valid_mask, torch.Tensor):
+            raise TypeError("retrieved valid_mask must be a torch.Tensor or None")
+        if self.valid_mask.shape != self.keys.shape[:-1]:
+            raise ValueError(
+                "retrieved valid_mask must have shape [B, Hkv, K] matching keys"
+            )
+        if self.valid_mask.dtype != torch.bool:
+            raise TypeError("retrieved valid_mask must use torch.bool")
+        if self.valid_mask.device != self.keys.device:
+            raise ValueError(
+                "retrieved valid_mask and KV tensors must be on the same device"
+            )
+        if not torch.all(self.valid_mask.any(dim=-1)).item():
+            raise ValueError(
+                "retrieved KV must contain at least one valid token per batch/head"
+            )

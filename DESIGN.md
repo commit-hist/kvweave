@@ -207,7 +207,7 @@ class KVStorage:
     def fetch(
         self,
         selection: "Selection",
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> "RetrievedKV":
         ...
 ```
 
@@ -235,7 +235,18 @@ Possible initial form:
 class Selection:
     indices: torch.Tensor
     scores: torch.Tensor | None = None
+    valid_mask: torch.Tensor | None = None
 ```
+
+The optional mask is required by demonstrated Phase 1 behavior: independently
+ranked page sets can contain the partial final page for some batch/head entries
+but not others, producing different valid candidate counts. The rectangular
+index tensor uses valid in-range placeholders only, while `valid_mask` defines
+which entries are semantically selected and exposes the actual counts.
+
+`Selection` remains the index result: it describes which sequence positions
+were selected. Storage consumes it but does not add algorithm-specific page
+IDs, scores, budgets, or page counts to the retrieved tensors.
 
 Future representations may include:
 
@@ -247,6 +258,36 @@ hierarchical nodes
 ```
 
 Do not generalize prematurely.
+
+---
+
+## RetrievedKV
+
+Storage returns a minimal mask-preserving representation:
+
+```python
+@dataclass
+class RetrievedKV:
+    keys: torch.Tensor
+    values: torch.Tensor
+    valid_mask: torch.Tensor | None = None
+```
+
+Keys and values have rectangular shape `[B, Hkv, K, D]`. When valid candidate
+counts differ across batch items or KV heads, `valid_mask` has shape
+`[B, Hkv, K]` and false positions are padding that must not participate in
+attention. `valid_mask=None` means every retrieved position is valid.
+
+Rectangular tensors plus an explicit validity mask are preferred now because
+they preserve batch/head tensor operations and device placement while handling
+the ragged counts already demonstrated by partial Quest pages. Ragged Python
+lists would move shape handling and per-row loops into storage consumers and
+make reference attention less representative of tensor execution. This is a
+single retrieval result type, not the start of a generic tensor-container
+hierarchy.
+
+Algorithm-specific metadata remains on algorithm results such as
+`QuestSearchResult`; it does not belong in `RetrievedKV`.
 
 ---
 
@@ -274,7 +315,7 @@ class KVCache:
         self,
         query: torch.Tensor,
         budget: int,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> RetrievedKV:
         ...
 ```
 
@@ -335,6 +376,18 @@ index over compressed representations
 
 Phase 1 should implement the form closest to the chosen Quest reference algorithm.
 
+For the Phase 1 Quest reference, one query corresponds to one KV head. Queries
+therefore have shape:
+
+```text
+[B, Hkv, D]
+```
+
+Page selection is independent for every batch item and KV head. Grouped-query
+attention (GQA), including query-head aggregation or shared selection within a
+KV-head group, is explicitly out of scope for this reference implementation.
+Those choices belong at the future model-integration boundary.
+
 Do not lock the public API around one strategy.
 
 ---
@@ -369,6 +422,14 @@ run attention on selected KV
 
 Initial page metadata may contain min/max values across keys according to the algorithm being reproduced.
 
+A partial final page is an ordinary indexed page. `QuestIndex` neither drops it
+nor force-includes it; its score alone determines whether it is selected.
+
+For reproducibility, KVDB ranks equal page scores by ascending page ID. Selected
+pages otherwise follow descending score order, and token IDs within each page
+are ascending. This is a KVDB reference policy, not a claim of upstream tie
+compatibility.
+
 The reference implementation should favor readability over kernel efficiency.
 
 ---
@@ -383,16 +444,19 @@ class QuestMetadata:
     minimum: torch.Tensor
     maximum: torch.Tensor
     page_size: int
+    sequence_length: int
 ```
 
-Example dimensions:
+Phase 1 dimensions are:
 
 ```text
-minimum: [Hkv, num_pages, D]
-maximum: [Hkv, num_pages, D]
+minimum: [B, Hkv, P, D]
+maximum: [B, Hkv, P, D]
 ```
 
-Exact dimensions should follow algorithmic requirements.
+where `P = ceil(S / page_size)`. Metadata must retain the original sequence
+length and page size so every page's valid token range, including a short final
+page, can be reconstructed without treating padding as data.
 
 ---
 
@@ -484,10 +548,22 @@ The internal system needs a common way to reason about budget.
 For Phase 1, use:
 
 ```text
-selected token count
+requested token count
 ```
 
-where possible.
+at the public `KVIndex` boundary. Quest converts a positive requested token
+budget to a page budget with:
+
+```text
+num_pages_to_select = ceil(token_budget / page_size)
+```
+
+and caps that value at the number of indexed pages. A request greater than or
+equal to the sequence length selects every page and recovers every valid token.
+Because page selection is indivisible and the final page may be partial, Quest
+must separately expose the actual number of valid candidate tokens selected for
+each batch item and KV head. It must not report the requested token budget as
+the actual count unless they are equal.
 
 Quest may internally convert:
 
@@ -527,15 +603,27 @@ Instead:
 model produces/query provides Q
              │
              ▼
-          KVDB
+           index
              │
-       selected K/V
+          Selection
+             │
+             ▼
+       storage.fetch()
+             │
+             ▼
+ RetrievedKV(K, V, valid_mask)
              │
              ▼
 reference attention
 ```
 
-This allows independent validation.
+Reference selected attention masks invalid logits to negative infinity before
+softmax and excludes invalid values from the weighted sum. Rows with no valid
+retrieved token are rejected before softmax, preventing silent NaNs. The dense
+path needs no mask when every retrieved position is valid.
+
+This allows independent validation while preserving the retrieval semantics
+across the storage boundary.
 
 Later integrations may fuse:
 
@@ -548,6 +636,14 @@ attention
 ```
 
 for performance.
+
+The standalone `QuestIndex` remains model-agnostic. The following are future
+integration or decode-runtime policies, not intrinsic index behavior:
+
+* forced inclusion of the newest, possibly partial page;
+* dense attention in early transformer layers;
+* RoPE placement and incremental metadata-update details; and
+* GQA query-head aggregation or shared-selection policy.
 
 ---
 
@@ -1120,4 +1216,3 @@ compare Pareto frontiers
 ```
 
 If that works convincingly, KVDB graduates from an interesting idea into a real systems project.
-

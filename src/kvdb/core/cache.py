@@ -3,7 +3,7 @@
 import torch
 
 from kvdb.core.interfaces import KVIndex, KVStorage
-from kvdb.core.types import validate_kv_tensors
+from kvdb.core.types import RetrievedKV, validate_kv_tensors
 
 
 class KVCache:
@@ -23,7 +23,7 @@ class KVCache:
         self,
         query: torch.Tensor,
         budget: int,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Select and fetch KV tensors for one decode query per KV head."""
+    ) -> RetrievedKV:
+        """Select and fetch mask-preserving KV for one query per KV head."""
         selection = self.index.search(query, budget)
         return self.storage.fetch(selection)

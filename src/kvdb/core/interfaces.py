@@ -4,7 +4,7 @@ from typing import Protocol
 
 import torch
 
-from kvdb.core.types import Selection
+from kvdb.core.types import RetrievedKV, Selection
 
 
 class KVIndex(Protocol):
@@ -26,6 +26,6 @@ class KVStorage(Protocol):
         """Store canonical tensors ``[B, Hkv, S, D]``."""
         ...
 
-    def fetch(self, selection: Selection) -> tuple[torch.Tensor, torch.Tensor]:
-        """Fetch selected tensors with shape ``[B, Hkv, K, D]``."""
+    def fetch(self, selection: Selection) -> RetrievedKV:
+        """Fetch selected tensors and preserve rectangular validity."""
         ...
