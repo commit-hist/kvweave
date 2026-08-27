@@ -4,6 +4,162 @@ This document records the research provenance used by KVDB. Algorithmic ideas,
 observations from upstream implementations, and KVDB-authored code are kept
 separate so that attribution and licensing remain explicit.
 
+## Pythia-410M Phase 3A activation validation
+
+### Model, license, and dependency provenance
+
+- **Model:**
+  [EleutherAI/pythia-410m](https://huggingface.co/EleutherAI/pythia-410m),
+  current retrained (non-v0) release.
+- **Exact model revision:**
+  [`9879c9b5f8bea9051dcb0e68dff21493d67e9d4f`](https://huggingface.co/EleutherAI/pythia-410m/tree/9879c9b5f8bea9051dcb0e68dff21493d67e9d4f),
+  resolved from `main` and pinned before model download on 2026-08-27. The
+  model card says branch `step143000` is the same final checkpoint as `main`.
+- **Model license:** Apache-2.0, as declared by the pinned model-card metadata
+  and its Model Details section. This is a license for the model release; KVDB
+  does not copy model or Transformers source into the repository.
+- **Pinned Transformers experiment dependency:** `transformers==5.15.1`,
+  Apache-2.0. Tag `v5.15.1` resolves to source commit
+  [`550d7b3834670483a4df436541272c055dc364bf`](https://github.com/huggingface/transformers/tree/550d7b3834670483a4df436541272c055dc364bf).
+  It is an optional `model-experiment` dependency, not a core runtime
+  dependency.
+
+The pinned downloaded `config.json` and the live `model.config` both verify:
+
+```text
+architecture                  GPTNeoXForCausalLM / GPT-NeoX
+model_type                    gpt_neox
+hidden_size                   1024
+num_hidden_layers             24
+num_attention_heads           16
+head_dimension               64
+num_key_value_heads           16 (standard MHA; no GQA/MQA reduction)
+max_position_embeddings       2048
+rotary_pct                    0.25
+rotary_dimensions per head    16
+rotary base                   10000
+attention scale               64**-0.5 = 0.125
+parallel residual             true
+```
+
+The raw config does not declare a separate `num_key_value_heads`; GPT-NeoX's
+fused projection produces Q, K, and V for all 16 heads. The loaded attention
+module's projection has output width `3 * hidden_size`, confirming ordinary
+multi-head attention rather than GQA or MQA. No concrete incompatibility was
+found, so the requested model choice was retained.
+
+### Extraction, RoPE, causality, and reconstruction
+
+KVDB does not patch the model's attention path. For selected layers, a forward
+hook observes `GPTNeoXAttention.query_key_value`, whose native fused output is
+`[B, S, 3 * hidden]`. GPT-NeoX interprets this as `[B, S, H, 3 * D]`, then
+transposes and chunks the final dimension into Q/K/V `[B, H, S, D]`. Splitting
+the fused output into three contiguous hidden-sized blocks would be wrong and
+is covered by an offline unit test.
+
+The model-level rotary module is also observed. Its cosine/sine tensors are
+used to independently reproduce Transformers 5.15.1 partial RoPE: only the
+leading 16 of each head's 64 Q/K dimensions are rotated, while the remaining
+48 dimensions pass through unchanged. V receives no positional transform.
+Thus the indexed keys and search queries are the post-RoPE representations that
+actually participate in model attention, not raw fused-projection Q/K.
+
+Each tested sequence length receives its own deterministic, unpadded model
+forward. For query position `t = S - 1`, Q is sliced to `[B, H, D]` and only
+K/V positions `0..t` are exposed to retrieval. Future positions cannot enter
+the index or storage. The input is a locally authored text tokenized once and
+repeated to exact lengths 256, 512, 1,024, and 2,048; no external dataset is
+used. This deliberately narrow activation distribution is a limitation.
+
+The model is forced to eager attention. Independent reconstruction computes
+the full causal QK matrix with scale `0.125`, masks future tokens, applies
+softmax in float32, multiplies by V, concatenates heads, and applies the model's
+dense attention projection. All 12 layer/length checks (layers 0, 12, and 23)
+passed at `rtol=1e-4, atol=1e-5`. The worst relative reconstruction error was
+`7.4232e-7`; the worst absolute element error was `1.4306e-6`.
+
+Quest, PQ, and exact Top-K still rank unscaled raw QK dot products. Multiplying
+every token score for one head/query by the same positive `0.125` does not
+change ranking. Only the final attention comparison applies the model scale.
+
+### Phase 3A experiment and observed behavior
+
+The deterministic matrix covers all 16 heads for layers 0, 12, and 23; sequence
+lengths 256/512/1,024/2,048; token budgets 12.5%/25%/50%/100%; Quest page sizes
+16 and 64; and PQ `(M=2,C=4)` and `(M=4,C=8)` with eight Lloyd iterations and
+seed zero. It produces 3,840 per-head records. The structured local result is
+`benchmarks/results/pythia-410m-phase3a-reference.json` (benchmark outputs are
+gitignored by repository policy).
+
+Across heads, layers, and lengths, the partial-budget mean metrics were:
+
+| Strategy/config | Budget | Candidate recall | Attention mass | Relative output error |
+| --- | ---: | ---: | ---: | ---: |
+| Exact Top-K | 12.5% | 1.000 | 0.887 | 0.125 |
+| Exact Top-K | 25% | 1.000 | 0.943 | 0.067 |
+| Exact Top-K | 50% | 1.000 | 0.984 | 0.022 |
+| Quest page 16 | 12.5% | 0.328 | 0.467 | 1.134 |
+| Quest page 16 | 25% | 0.444 | 0.582 | 0.910 |
+| Quest page 16 | 50% | 0.619 | 0.734 | 0.568 |
+| Quest page 64 | 12.5% | 0.378 | 0.661 | 0.370 |
+| Quest page 64 | 25% | 0.431 | 0.727 | 0.274 |
+| Quest page 64 | 50% | 0.606 | 0.843 | 0.140 |
+| PQ M2/C4 | 12.5% | 0.282 | 0.318 | 1.325 |
+| PQ M2/C4 | 25% | 0.478 | 0.548 | 0.963 |
+| PQ M2/C4 | 50% | 0.677 | 0.768 | 0.602 |
+| PQ M4/C8 | 12.5% | 0.454 | 0.508 | 1.011 |
+| PQ M4/C8 | 25% | 0.567 | 0.655 | 0.756 |
+| PQ M4/C8 | 50% | 0.713 | 0.834 | 0.430 |
+
+These averages hide extreme layer/head variation. Layer 23 was much harder for
+approximate ranking than layers 0 and 12. For example, Quest page 16 at layer
+23 had mean recall/mass/error `0.111/0.139/2.702` at 12.5% budget, while Quest
+page 64 had `0.214/0.707/0.325`. Some late-layer heads assigned essentially all
+attention mass to tokens selected by page 64 despite low raw Top-K candidate
+recall; other heads captured almost no mass and produced very large relative
+errors. The sample therefore does not support reporting averages alone.
+
+Budget increases improved mean recall for both Quest and PQ and made attention
+mass nondecreasing in every one of 384 strategy/config/context/layer/head
+groups. Candidate recall itself was individually monotonic in 306/384 Quest
+groups and 347/384 PQ groups because its exact Top-K target also expands with
+budget. Output error was nonincreasing in 365/384 Quest groups and 342/384 PQ
+groups. Every strategy reached full coverage at 100%.
+
+At equal actual candidate counts, smaller Quest pages did **not** reliably win:
+page 16 beat page 64 for candidate recall in 247/528 comparisons, lost 251,
+and tied 30. Page 64 slightly more often captured greater attention mass
+(264 versus 240, 24 ties) and produced lower output error (268 versus 238, 22
+ties). The synthetic tendency toward smaller-page recall therefore did not
+survive robustly in this one real-activation sample.
+
+PQ M4/C8 had lower mean key-reconstruction error than M2/C4 (`0.294` versus
+`0.340`). At fixed context/layer/head/budget, the higher-reconstruction-quality
+configuration improved candidate recall in 459/576 comparisons, attention mass
+in 440/576, and output error in 409/576. This is a tendency, not a reliable
+per-head rule.
+
+For partial budgets, pooled Pearson correlation between candidate recall and
+output error was `-0.398`, `-0.380`, and `-0.331` at 12.5%, 25%, and 50%.
+Attention-mass correlation with output error was substantially stronger at
+`-0.645`, `-0.705`, and `-0.760`. Attention mass is therefore the more useful
+diagnostic in this matrix, but the single repeated corpus is too small for a
+general model-quality conclusion. Pooled PQ reconstruction correlations are
+confounded by context/layer differences and are not treated as causal evidence.
+
+All 60 full-budget strategy/config/layer/length checks covered every causal KV
+token. Ranked full selections permute token order, so float32 reduction order
+left a worst per-head relative residual of `8.1063e-4` and worst absolute
+residual of `4.4169e-4`; both are within the explicitly recorded `1e-3` and
+`5e-4` permutation-equivalence bounds. Quest/PQ full-budget coverage spans all
+16 heads in every tested layer and length.
+
+This evidence strengthens the shared-interface hypothesis: no changes were
+required to `KVIndex`, `Selection`, `KVStorage`, `RetrievedKV`, `KVCache`,
+Quest ranking, PQ ranking, or storage. It weakens any assumption that synthetic
+average recall alone predicts real attention behavior. This phase makes no
+generation, perplexity, downstream-quality, or speed claim.
+
 ## PQCache
 
 ### Sources and attribution

@@ -20,13 +20,19 @@ dependencies = [
 test = [
     "pytest>=8,<9",
 ]
+model-experiment = [
+    "transformers==5.15.1",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
-addopts = "-ra"
+addopts = "-ra -m 'not model_download'"
 testpaths = ["tests"]
+markers = [
+    "model_download: opt-in validation that downloads a pinned external model",
+]
 
 [tool.ruff]
 line-length = 88

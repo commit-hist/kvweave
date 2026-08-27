@@ -14,3 +14,8 @@ pex_binary(
     name="pq_reference",
     entry_point="pq_reference.py",
 )
+
+pex_binary(
+    name="real_model_reference",
+    entry_point="real_model_reference.py",
+)

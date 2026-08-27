@@ -85,3 +85,34 @@ the configured centroid count. Codebook storage reports actual tensor bytes.
 The reference does not implement bit packing. Quest/PQ Python timings describe
 different readable algorithms and must not be used to claim that either
 strategy is faster or better.
+
+Run the opt-in Phase 3A Pythia real-activation experiment with:
+
+```bash
+mise run bench:real-model -- \
+  --output benchmarks/results/pythia-410m-phase3a-reference.json
+```
+
+This command uses the optional pinned Transformers dependency and downloads the
+pinned `EleutherAI/pythia-410m` model/tokenizer revision on first use. Ordinary
+tests and synthetic benchmarks do not download it. The default matrix captures
+post-RoPE Q/K and unchanged V for layers 0, 12, and 23 at exact sequence lengths
+256, 512, 1,024, and 2,048. It evaluates all 16 heads, four budgets, two Quest
+page sizes, and two small PQ configurations through the common index,
+selection, storage, retrieved-KV, and reference-attention path.
+
+The script refuses to evaluate approximate retrieval unless independent full
+causal attention reconstruction matches the model. Output is structured JSON
+with per-head records, mean/median/min/max aggregates, attention-mass capture,
+full-budget invariants, correlations, and controlled configuration comparisons.
+Its timing fields are single diagnostic observations, not optimized latency
+measurements or speed claims. The experiment evaluates internal activations
+only; it makes no generation, perplexity, downstream-quality, or end-to-end
+inference claim.
+
+The model-download validation test is separately opt-in:
+
+```bash
+mise exec -- pants test tests/integration/test_pythia_real_model.py -- \
+  -m model_download
+```

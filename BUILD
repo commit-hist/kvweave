@@ -28,5 +28,9 @@ python_distribution(
         license_files=["LICENSE", "NOTICE"],
         long_description_content_type="text/markdown",
         python_requires=">=3.11",
+        extras_require={
+            "model-experiment": ["transformers==5.15.1"],
+            "test": ["pytest>=8,<9"],
+        },
     ),
 )

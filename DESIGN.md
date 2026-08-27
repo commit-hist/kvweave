@@ -8,6 +8,10 @@ This document describes the initial architecture for KVDB.
 
 The architecture is intentionally minimal and should evolve based on empirical results.
 
+Phase 2 synthetic validation is accepted. Phase 3 is split into activation-only
+validation before any decode integration so model evidence cannot be conflated
+with generation behavior or runtime performance.
+
 ---
 
 # 1. Problem
@@ -693,6 +697,30 @@ small transformer
 real long-context model
 ```
 
+## Phase 3A evidence boundary
+
+The first real-model adapter targets standard-MHA GPT-NeoX. It observes the
+model's fused QKV projection and rotary-embedding state, constructs Q/K after
+the model's partial RoPE transform, leaves V unchanged, and converts all three
+to canonical `[B, Hkv, S, D]`. For one query position `t`, the adapter exposes
+query `[B, Hkv, D]` and the causal K/V prefix `0..t` only.
+
+This adapter is intentionally outside `KVIndex`, storage, and cache
+coordination. Real Pythia activations required no change to `KVIndex`,
+`Selection`, `KVStorage`, `RetrievedKV`, or `KVCache`. Quest and PQ therefore
+continue through the same selection and storage path established synthetically.
+
+The activation experiment does not patch model attention. An independent eager
+attention reconstruction must match the model's attention output before any
+retrieval measurements are accepted. Retrieval indexes rank unscaled raw dot
+products; the positive model scale does not change that ranking. Reference
+attention applies the model scale, causal semantics, float32 softmax, and value
+aggregation separately.
+
+Actual approximate decode/generation integration is Phase 3B. Phase 3A cannot
+support perplexity, downstream quality, generation-equivalence, end-to-end
+latency, or speedup claims.
+
 ---
 
 # 16. Benchmark Architecture
@@ -1110,12 +1138,27 @@ The reference implementation and synthetic end-to-end tests now satisfy this
 exit condition without modifying the shared interfaces. Model-level and
 optimized-runtime questions remain for later phases.
 
-## Phase 3 — Model Integration
+## Phase 3A — Real-Activation Validation
 
-* Hugging Face adapter
-* real Q/K/V extraction
-* decode experiment
-* end-to-end quality evaluation
+* minimal Hugging Face GPT-NeoX adapter
+* post-RoPE real Q/K/V extraction
+* causal single-query retrieval experiment
+* independent full-attention reconstruction
+* per-layer/per-head recall, attention-mass, and output-error measurements
+
+Exit condition:
+
+> Quest and PQ preserve their common path on validated real activations, and
+> every full-budget experiment recovers the complete causal KV set.
+
+## Phase 3B — Decode/Generation Integration
+
+* patch or adapt an actual decode path
+* generation equivalence and quality evaluation
+* end-to-end runtime measurement
+
+Phase 3B must not inherit quality or speed claims from Phase 3A activation
+metrics.
 
 ## Phase 4 — Profiling
 
