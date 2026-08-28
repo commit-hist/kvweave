@@ -165,3 +165,7 @@ benchmarks/local/
 
 mise.local.toml
 mise.local.lock
+
+# Local release-readiness notes, kept out of the public repository
+
+docs/OPEN_SOURCE_CHECKLIST.md
