@@ -1,8 +1,6 @@
 # Contributor Covenant Code of Conduct
 
-> This project uses the Contributor Covenant, version 2.1. The enforcement
-> contact paragraph below transparently records a contact-configuration release
-> blocker instead of inventing a private address.
+> This project uses the Contributor Covenant, version 2.1.
 
 ## Our Pledge
 
@@ -63,11 +61,9 @@ representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior should be
-reported privately to the community leaders responsible for enforcement. **No
-private conduct-reporting channel is currently documented. Before public
-release, maintainers must configure and document a real private contact method;
-do not report sensitive conduct incidents in public issues.** All complaints
-will be reviewed and investigated promptly and fairly.
+reported privately to the community leaders responsible for enforcement at
+conduct-kvweave@gabani.org. Do not report sensitive conduct incidents in public
+issues. All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the
 reporter of any incident.
