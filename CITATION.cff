@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use KVWeave in research, please cite the software and the originating papers for the algorithms you use."
+title: "KVWeave"
+type: software
+abstract: "Experimental research infrastructure for shared KV-cache retrieval and indexing in transformer inference."
+authors:
+  - family-names: "Gabani"
+    given-names: "Keyur"
+version: "0.0.1"
+license: "Apache-2.0"
+keywords:
+  - "KV cache"
+  - "transformer inference"
+  - "retrieval"
+  - "product quantization"
+  - "sparse attention"

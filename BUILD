@@ -23,7 +23,7 @@ python_distribution(
         name="kvweave",
         version="0.0.1",
         author="Keyur Gabani",
-        description="Experimental KV-cache retrieval and indexing infrastructure for LLM inference.",
+        description="Experimental research infrastructure for shared KV-cache retrieval and indexing in transformer inference.",
         license="Apache-2.0",
         license_files=["LICENSE", "NOTICE"],
         long_description_content_type="text/markdown",
