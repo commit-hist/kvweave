@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from kvdb.integrations.transformers import (
+from kvweave.integrations.transformers import (
     DecodeStrategy,
     GPTNeoXDecodeRunner,
 )
@@ -18,6 +18,7 @@ def test_decode_validation_is_pinned_and_opt_in() -> None:
 
 
 def repeated_prompt(tokenizer: object, sequence_length: int) -> torch.Tensor:
+    # Frozen before the rename; retain these bytes for stable decode controls.
     token_ids = tokenizer(  # type: ignore[operator]
         "A deterministic stateful decode fixture for the KVDB reference loop. ",
         add_special_tokens=False,

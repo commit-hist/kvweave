@@ -1,1 +1,1 @@
-"""Reusable helpers for KVDB's reproducible benchmark programs."""
+"""Reusable helpers for KVWeave's reproducible benchmark programs."""

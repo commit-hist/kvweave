@@ -3,8 +3,8 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from kvdb.core.types import Selection
-from kvdb.integrations.transformers import (
+from kvweave.core.types import Selection
+from kvweave.integrations.transformers import (
     GPTNeoXLayerActivations,
     apply_gpt_neox_rope,
     attention_mass_captured,

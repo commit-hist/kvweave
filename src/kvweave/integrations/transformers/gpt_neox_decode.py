@@ -3,7 +3,7 @@
 This is a correctness-oriented model integration, not a serving runtime. It
 uses a loaded Hugging Face GPT-NeoX model's existing projections, norms, MLPs,
 rotary embedding, and LM head while making every one-token decode operation
-and KVDB retrieval boundary explicit. Transformers remains an optional
+and KVWeave retrieval boundary explicit. Transformers remains an optional
 dependency and is not imported at module load time.
 """
 
@@ -16,9 +16,9 @@ from typing import Any
 import torch
 from torch.nn import functional as functional
 
-from kvdb import KVCache, PQIndex, QuestIndex, TensorStorage
-from kvdb.core.types import Selection, validate_kv_tensors
-from kvdb.integrations.transformers.gpt_neox import (
+from kvweave import KVCache, PQIndex, QuestIndex, TensorStorage
+from kvweave.core.types import Selection, validate_kv_tensors
+from kvweave.integrations.transformers.gpt_neox import (
     GPTNeoXArchitecture,
     ReferenceAttention,
     apply_gpt_neox_rope,
@@ -26,7 +26,7 @@ from kvdb.integrations.transformers.gpt_neox import (
     split_gpt_neox_qkv,
     validate_gpt_neox_config,
 )
-from kvdb.profiling import profile_component, profile_context
+from kvweave.profiling import profile_component, profile_context
 
 
 class DecodeMode(str, Enum):
@@ -153,7 +153,7 @@ def update_decode_cache(
             raise ValueError("dense decode must not own a retrieval cache")
         return
     if cache is None:
-        raise ValueError("approximate decode requires a KVDB cache")
+        raise ValueError("approximate decode requires a KVWeave cache")
     if strategy is DecodeStrategy.QUEST:
         if not isinstance(cache.index, QuestIndex):
             raise ValueError("Quest decode requires QuestIndex")
@@ -328,7 +328,7 @@ class DensePrefillSnapshot:
 
 @dataclass
 class DecodeLayerState:
-    """Mutable per-layer causal KV and optional KVDB coordinator."""
+    """Mutable per-layer causal KV and optional KVWeave coordinator."""
 
     keys: torch.Tensor
     values: torch.Tensor
@@ -388,7 +388,7 @@ class GPTNeoXDecodeStep:
 
 
 class GPTNeoXDecodeRunner:
-    """Reference one-token GPT-NeoX decoder with inspectable KVDB attention."""
+    """Reference one-token GPT-NeoX decoder with inspectable KVWeave attention."""
 
     def __init__(self, model: Any) -> None:
         self.model = model
@@ -559,7 +559,7 @@ class GPTNeoXDecodeRunner:
                 logical_code_bytes,
                 tensor_bytes(metadata.codebooks),
             )
-        raise RuntimeError("unsupported KVDB index in decode state")
+        raise RuntimeError("unsupported KVWeave index in decode state")
 
     def step(
         self,
@@ -651,7 +651,7 @@ class GPTNeoXDecodeRunner:
                     newest_token_included = True
                 else:
                     if layer_state.cache is None:
-                        raise RuntimeError("approximate layer has no KVDB cache")
+                        raise RuntimeError("approximate layer has no KVWeave cache")
                     token_budget = max(
                         1,
                         math.ceil(layer_state.keys.shape[2] * state.budget_fraction),

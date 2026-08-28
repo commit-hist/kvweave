@@ -17,8 +17,8 @@ from benchmarks.phase3a import (
     quest_bound_quality,
     top_attention_mass,
 )
-from kvdb.core.types import Selection
-from kvdb.indexes.quest import build_page_metadata
+from kvweave.core.types import Selection
+from kvweave.indexes.quest import build_page_metadata
 
 
 class IntegerTokenizer:

@@ -8,8 +8,8 @@ from dataclasses import dataclass
 
 import torch
 
-from kvdb.core.types import validate_keys
-from kvdb.profiling import profile_component
+from kvweave.core.types import validate_keys
+from kvweave.profiling import profile_component
 
 
 def _validate_positive_integer(value: int, *, name: str) -> None:

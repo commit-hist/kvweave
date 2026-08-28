@@ -1,8 +1,8 @@
 import pytest
 import torch
 
-from kvdb.core.types import Selection
-from kvdb.storage.tensor import TensorStorage
+from kvweave.core.types import Selection
+from kvweave.storage.tensor import TensorStorage
 
 
 def test_fetch_gathers_keys_and_values_per_head() -> None:

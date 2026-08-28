@@ -16,11 +16,11 @@ from typing import Any
 
 import torch
 
-from kvdb import BruteForceIndex, PQIndex, QuestIndex, TensorStorage
-from kvdb.core.types import Selection
-from kvdb.indexes.pq import reconstruct_keys
-from kvdb.indexes.quest.reference import candidate_recall
-from kvdb.integrations.transformers import (
+from kvweave import BruteForceIndex, PQIndex, QuestIndex, TensorStorage
+from kvweave.core.types import Selection
+from kvweave.indexes.pq import reconstruct_keys
+from kvweave.indexes.quest.reference import candidate_recall
+from kvweave.integrations.transformers import (
     GPTNeoXLayerActivations,
     attention_mass_captured,
     capture_gpt_neox_activations,
@@ -37,6 +37,7 @@ from kvdb.integrations.transformers import (
 DEFAULT_MODEL_ID = "EleutherAI/pythia-410m"
 DEFAULT_MODEL_REVISION = "9879c9b5f8bea9051dcb0e68dff21493d67e9d4f"
 DETERMINISTIC_TEXT = (
+    # Frozen before the rename; retain these bytes for comparable model inputs.
     "KVDB studies whether key value cache retrieval can be separated from "
     "storage while preserving the attention behavior of a transformer. "
     "This repeated local corpus creates deterministic real model activations "

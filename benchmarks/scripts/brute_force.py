@@ -9,7 +9,7 @@ import time
 
 import torch
 
-from kvdb import BruteForceIndex
+from kvweave import BruteForceIndex
 
 
 DTYPES = {

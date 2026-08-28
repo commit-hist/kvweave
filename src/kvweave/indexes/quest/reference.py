@@ -5,7 +5,7 @@ import math
 
 import torch
 
-from kvdb.core.types import (
+from kvweave.core.types import (
     RetrievedKV,
     Selection,
     validate_kv_tensors,

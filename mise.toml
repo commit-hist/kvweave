@@ -18,7 +18,7 @@ description = "Run the complete test suite through Pants"
 run = "pants test ::"
 
 [tasks.package]
-description = "Build the KVDB wheel and source distribution through Pants"
+description = "Build the KVWeave wheel and source distribution through Pants"
 run = "pants package //:dist"
 
 [tasks.check]

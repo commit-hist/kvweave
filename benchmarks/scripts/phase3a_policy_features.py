@@ -23,7 +23,7 @@ from benchmarks.policy_feasibility import (
     validate_fixture_lock,
     validate_tokenized_fixture_lock,
 )
-from kvdb.integrations.transformers import (
+from kvweave.integrations.transformers import (
     capture_gpt_neox_activations,
     causal_slice,
     validate_gpt_neox_config,

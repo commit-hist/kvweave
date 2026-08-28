@@ -8,8 +8,8 @@ from dataclasses import dataclass
 
 import torch
 
-from kvdb.core.types import Selection, validate_keys, validate_query
-from kvdb.profiling import profile_component
+from kvweave.core.types import Selection, validate_keys, validate_query
+from kvweave.profiling import profile_component
 
 
 def _validate_page_size(page_size: int) -> None:
@@ -294,7 +294,7 @@ class QuestIndex:
 
     Equal page scores are resolved by ascending page ID. Selected pages are
     returned in descending score order, followed by tokens in ascending order
-    within each page. This deterministic policy is local to KVDB and is not a
+    within each page. This deterministic policy is local to KVWeave and is not a
     claim about upstream tie behavior.
     """
 

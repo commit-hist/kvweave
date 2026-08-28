@@ -12,7 +12,7 @@ from typing import Any
 
 import torch
 
-from kvdb.profiling import ComponentTiming, estimate_tensor_bytes, percentile
+from kvweave.profiling import ComponentTiming, estimate_tensor_bytes, percentile
 
 
 MODEL_COMPONENT_GROUPS: dict[str, tuple[str, ...]] = {

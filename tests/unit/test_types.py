@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from kvdb.core.types import RetrievedKV, Selection, validate_kv_tensors
+from kvweave.core.types import RetrievedKV, Selection, validate_kv_tensors
 
 
 def test_selection_accepts_canonical_shape() -> None:

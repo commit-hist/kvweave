@@ -12,10 +12,10 @@ from typing import TypeVar
 
 import torch
 
-from kvdb import BruteForceIndex, PQIndex, QuestIndex, TensorStorage
-from kvdb.core.types import Selection
-from kvdb.indexes.pq import reconstruct_keys
-from kvdb.indexes.quest.reference import (
+from kvweave import BruteForceIndex, PQIndex, QuestIndex, TensorStorage
+from kvweave.core.types import Selection
+from kvweave.indexes.pq import reconstruct_keys
+from kvweave.indexes.quest.reference import (
     candidate_recall,
     full_attention,
     selected_attention,

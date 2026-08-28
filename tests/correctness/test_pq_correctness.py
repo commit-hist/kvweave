@@ -1,8 +1,8 @@
 import torch
 
-from kvdb import BruteForceIndex, KVCache, PQIndex, TensorStorage
-from kvdb.indexes.pq import build_pq_metadata, reconstruct_keys
-from kvdb.indexes.quest.reference import candidate_recall, compare_attention
+from kvweave import BruteForceIndex, KVCache, PQIndex, TensorStorage
+from kvweave.indexes.pq import build_pq_metadata, reconstruct_keys
+from kvweave.indexes.quest.reference import candidate_recall, compare_attention
 
 
 def reconstruction_relative_error(

@@ -1,6 +1,6 @@
 """Deterministic inputs and diagnostics for Phase 3A replication.
 
-This module is benchmark support code, not part of KVDB's public package API.
+This module is benchmark support code, not part of KVWeave's public package API.
 It keeps locally authored fixtures and diagnostic definitions independently
 testable without importing Transformers or downloading a model.
 """
@@ -14,8 +14,8 @@ from typing import Any
 
 import torch
 
-from kvdb.core.types import Selection
-from kvdb.indexes.quest import QuestMetadata, score_pages
+from kvweave.core.types import Selection
+from kvweave.indexes.quest import QuestMetadata, score_pages
 
 
 @dataclass(frozen=True)

@@ -14,12 +14,17 @@ from typing import Any
 import torch
 from torch.nn import functional as functional
 
-from kvdb.core.types import RetrievedKV, Selection, validate_kv_tensors, validate_query
+from kvweave.core.types import (
+    RetrievedKV,
+    Selection,
+    validate_kv_tensors,
+    validate_query,
+)
 
 
 @dataclass(frozen=True)
 class GPTNeoXArchitecture:
-    """Verified GPT-NeoX properties needed at the KVDB adapter boundary."""
+    """Verified GPT-NeoX properties needed at the KVWeave adapter boundary."""
 
     hidden_size: int
     num_hidden_layers: int

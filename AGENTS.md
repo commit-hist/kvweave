@@ -1,14 +1,14 @@
-# KVDB — Agent Instructions
+# KVWeave — Agent Instructions
 
 ## Mission
 
-KVDB is an experimental high-performance indexing and retrieval layer for LLM KV caches.
+KVWeave is an experimental indexing and retrieval layer for LLM KV caches.
 
 The long-term hypothesis is:
 
 > Long-context KV-cache management increasingly resembles a database/search problem, and a reusable storage/indexing abstraction can support multiple retrieval strategies across inference runtimes.
 
-KVDB is **not** intended to become another full LLM inference framework.
+KVWeave is **not** intended to become another full LLM inference framework.
 
 Our job is to build a focused layer between inference engines and KV storage/retrieval strategies.
 
@@ -90,7 +90,7 @@ Do not make retrieval algorithms responsible for persistence or device managemen
 
 ---
 
-## 2. Separate Model Integration From KVDB Core
+## 2. Separate Model Integration From KVWeave Core
 
 Model-specific behavior belongs under integrations.
 
@@ -138,7 +138,7 @@ Do not write CUDA kernels before establishing that the algorithm itself works.
 
 Quest, PQCache, SnapKV, RetrievalAttention, Squeezed Attention, etc. are strategies.
 
-KVDB is the infrastructure.
+KVWeave is the infrastructure.
 
 The core architecture must not assume that Quest is the canonical method.
 
@@ -175,7 +175,7 @@ Never place an undocumented performance number in README.md.
 Target structure:
 
 ```text
-kvdb/
+kvweave/
 ├── AGENTS.md
 ├── DESIGN.md
 ├── README.md
@@ -183,7 +183,7 @@ kvdb/
 ├── pyproject.toml
 │
 ├── src/
-│   └── kvdb/
+│   └── kvweave/
 │       ├── __init__.py
 │       │
 │       ├── core/
@@ -240,7 +240,7 @@ Keep the API small.
 Possible direction:
 
 ```python
-from kvdb import KVCache
+from kvweave import KVCache
 
 cache = KVCache(
     index="quest",
@@ -403,7 +403,7 @@ Never copy code from an upstream repository without confirming licensing.
 
 Never remove upstream attribution.
 
-Do not imply that KVDB invented algorithms originating in research papers.
+Do not imply that KVWeave invented algorithms originating in research papers.
 
 ---
 

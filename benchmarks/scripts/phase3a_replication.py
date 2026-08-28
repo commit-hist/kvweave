@@ -31,11 +31,11 @@ from benchmarks.policy_feasibility import (
     validate_fixture_lock,
     validate_tokenized_fixture_lock,
 )
-from kvdb import BruteForceIndex, PQIndex, QuestIndex, TensorStorage
-from kvdb.core.types import Selection
-from kvdb.indexes.pq import reconstruct_keys, score_pq_codes
-from kvdb.indexes.quest.reference import candidate_recall
-from kvdb.integrations.transformers import (
+from kvweave import BruteForceIndex, PQIndex, QuestIndex, TensorStorage
+from kvweave.core.types import Selection
+from kvweave.indexes.pq import reconstruct_keys, score_pq_codes
+from kvweave.indexes.quest.reference import candidate_recall
+from kvweave.integrations.transformers import (
     GPTNeoXLayerActivations,
     attention_mass_captured,
     capture_gpt_neox_activations,

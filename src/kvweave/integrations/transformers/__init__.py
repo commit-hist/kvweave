@@ -1,6 +1,6 @@
 """Reference Hugging Face Transformers integration utilities."""
 
-from kvdb.integrations.transformers.gpt_neox import (
+from kvweave.integrations.transformers.gpt_neox import (
     DecodeActivationSlice,
     GPTNeoXArchitecture,
     GPTNeoXCapture,
@@ -18,7 +18,7 @@ from kvdb.integrations.transformers.gpt_neox import (
     validate_gpt_neox_config,
     validate_layer_indices,
 )
-from kvdb.integrations.transformers.gpt_neox_decode import (
+from kvweave.integrations.transformers.gpt_neox_decode import (
     DecodeMode,
     DecodeStrategy,
     DensePrefillSnapshot,

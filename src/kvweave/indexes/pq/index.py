@@ -2,8 +2,8 @@
 
 import torch
 
-from kvdb.core.types import Selection, validate_budget
-from kvdb.indexes.pq.reference import (
+from kvweave.core.types import Selection, validate_budget
+from kvweave.indexes.pq.reference import (
     PQMetadata,
     _validate_positive_integer,
     _validate_seed,
@@ -11,7 +11,7 @@ from kvdb.indexes.pq.reference import (
     build_pq_metadata,
     score_pq_codes,
 )
-from kvdb.profiling import profile_component
+from kvweave.profiling import profile_component
 
 
 class PQIndex:

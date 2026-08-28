@@ -2,7 +2,7 @@
 
 import torch
 
-from kvdb.core.types import (
+from kvweave.core.types import (
     Selection,
     validate_budget,
     validate_keys,

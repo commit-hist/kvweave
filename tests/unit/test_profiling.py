@@ -6,8 +6,8 @@ from benchmarks.phase4 import (
     rank_retrieval_bottlenecks,
     tensor_traffic_estimates,
 )
-from kvdb import PQIndex, QuestIndex
-from kvdb.profiling import (
+from kvweave import PQIndex, QuestIndex
+from kvweave.profiling import (
     ComponentProfiler,
     aggregate_component_timings,
     estimate_tensor_bytes,

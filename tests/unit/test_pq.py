@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from kvdb.indexes.pq import (
+from kvweave.indexes.pq import (
     PQIndex,
     build_pq_metadata,
     encode_keys,

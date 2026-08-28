@@ -1,12 +1,12 @@
-# KVDB
+# KVWeave
 
-Experimental indexing and retrieval infrastructure for LLM KV caches.
+**KV-cache retrieval and indexing for LLM inference**
 
 See `DESIGN.md` for the current technical hypothesis and architecture.
 
 > Status: early research prototype.
 
-KVDB is currently validating whether storage and retrieval strategies can share
+KVWeave is currently validating whether storage and retrieval strategies can share
 a small interface without erasing the properties that make each strategy
 useful. It is not an inference framework.
 

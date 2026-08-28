@@ -1,9 +1,9 @@
 import pytest
 import torch
 
-from kvdb import KVCache, PQIndex, QuestIndex, TensorStorage
-from kvdb.core.types import Selection
-from kvdb.integrations.transformers import (
+from kvweave import KVCache, PQIndex, QuestIndex, TensorStorage
+from kvweave.core.types import Selection
+from kvweave.integrations.transformers import (
     DecodeMode,
     DecodeStrategy,
     append_causal_kv,

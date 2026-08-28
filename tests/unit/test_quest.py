@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from kvdb.indexes.quest import (
+from kvweave.indexes.quest import (
     QuestIndex,
     QuestMetadata,
     build_page_metadata,

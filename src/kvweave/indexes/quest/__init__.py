@@ -1,6 +1,6 @@
 """Independent readable Quest-style page retrieval."""
 
-from kvdb.indexes.quest.index import (
+from kvweave.indexes.quest.index import (
     QuestIndex,
     QuestMetadata,
     QuestSearchResult,

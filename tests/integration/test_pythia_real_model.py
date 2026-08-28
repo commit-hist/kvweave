@@ -1,8 +1,8 @@
 import pytest
 import torch
 
-from kvdb import PQIndex, QuestIndex, TensorStorage
-from kvdb.integrations.transformers import (
+from kvweave import PQIndex, QuestIndex, TensorStorage
+from kvweave.integrations.transformers import (
     capture_gpt_neox_activations,
     causal_slice,
     project_head_outputs,
@@ -51,6 +51,7 @@ def test_pinned_pythia_attention_reconstruction_and_full_budget_indexes() -> Non
         dtype=torch.float32,
         attn_implementation="eager",
     )
+    # Frozen before the rename; retain these bytes for stable activation controls.
     token_ids = tokenizer(
         "A deterministic Pythia activation validation sequence for KVDB. ",
         add_special_tokens=False,

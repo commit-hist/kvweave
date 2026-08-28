@@ -1,10 +1,10 @@
-# KVDB — Technical Design
+# KVWeave — Technical Design
 
 ## Status
 
 **Experimental**
 
-This document describes the initial architecture for KVDB.
+This document describes the initial architecture for KVWeave.
 
 The architecture is intentionally minimal and should evolve based on empirical results.
 
@@ -48,13 +48,13 @@ Recent research explores multiple ways to avoid attending over every cached toke
 
 These approaches currently tend to be implemented as isolated research systems.
 
-KVDB investigates whether they can share a common infrastructure layer.
+KVWeave investigates whether they can share a common infrastructure layer.
 
 ---
 
 # 2. Hypothesis
 
-KVDB's central hypothesis is:
+KVWeave's central hypothesis is:
 
 > KV-cache retrieval can be decomposed into storage, indexing, retrieval policy, and inference integration sufficiently cleanly that multiple research algorithms can operate behind one common interface.
 
@@ -100,7 +100,7 @@ and runtime integrations such as:
 
 # 4. Non-Goals
 
-KVDB is not initially:
+KVWeave is not initially:
 
 * an inference server
 * a distributed KV-cache service
@@ -128,7 +128,7 @@ query
 attention
 ```
 
-KVDB:
+KVWeave:
 
 ```text
                     query
@@ -343,7 +343,7 @@ or:
 [batch, sequence, kv_heads, head_dim]
 ```
 
-KVDB should establish one canonical internal layout during Phase 1.
+KVWeave should establish one canonical internal layout during Phase 1.
 
 Suggested:
 
@@ -431,9 +431,9 @@ Initial page metadata may contain min/max values across keys according to the al
 A partial final page is an ordinary indexed page. `QuestIndex` neither drops it
 nor force-includes it; its score alone determines whether it is selected.
 
-For reproducibility, KVDB ranks equal page scores by ascending page ID. Selected
+For reproducibility, KVWeave ranks equal page scores by ascending page ID. Selected
 pages otherwise follow descending score order, and token IDs within each page
-are ascending. This is a KVDB reference policy, not a claim of upstream tie
+are ascending. This is a KVWeave reference policy, not a claim of upstream tie
 compatibility.
 
 The reference implementation should favor readability over kernel efficiency.
@@ -990,9 +990,9 @@ Persistence is strategically interesting but out of scope initially.
 Potential future API:
 
 ```python
-cache.save("repo-context.kvdb")
+cache.save("repo-context.kvweave")
 
-cache = KVCache.load("repo-context.kvdb")
+cache = KVCache.load("repo-context.kvweave")
 ```
 
 This becomes particularly valuable for fixed reusable context such as:
@@ -1010,7 +1010,7 @@ But persistence should not affect Phase 1 architecture unless necessary.
 
 # 23. Reusable Context
 
-A future KVDB mode may distinguish:
+A future KVWeave mode may distinguish:
 
 ```text
 static context
@@ -1090,7 +1090,7 @@ Implementation license
 Algorithm summary
 Reported benchmark
 Reproduction status
-KVDB implementation status
+KVWeave implementation status
 Notes
 ```
 
@@ -1108,7 +1108,7 @@ Official implementation:
 License:
 ...
 
-KVDB status:
+KVWeave status:
 Reference implementation in progress.
 
 Differences from upstream:
@@ -1123,11 +1123,11 @@ README claims must include enough information to reproduce them.
 
 Bad:
 
-> KVDB is 5× faster.
+> KVWeave is 5× faster.
 
 Good:
 
-> On MODEL / GPU / 64K context / batch=1 / specified retrieval budget, KVDB Quest retrieval reduced measured attention latency from X ms to Y ms in commit ABC.
+> On MODEL / GPU / 64K context / batch=1 / specified retrieval budget, KVWeave Quest retrieval reduced measured attention latency from X ms to Y ms in commit ABC.
 
 Never extrapolate benchmark results beyond tested conditions.
 
@@ -1197,7 +1197,7 @@ metrics.
 
 Exit evidence:
 
-> Stateful multi-token decode preserved the shared KVDB abstraction and exact
+> Stateful multi-token decode preserved the shared KVWeave abstraction and exact
 > full-budget behavior. Partial retrieval errors can compound, so Phase 4 may
 > profile the proven path but must not assume that one fixed sparse setting is
 > quality-safe or choose an optimization backend without measurement.
@@ -1325,4 +1325,4 @@ same interface
 compare Pareto frontiers
 ```
 
-If that works convincingly, KVDB graduates from an interesting idea into a real systems project.
+If that works convincingly, KVWeave graduates from an interesting idea into a real systems project.

@@ -12,8 +12,8 @@ from typing import TypeVar
 
 import torch
 
-from kvdb import BruteForceIndex, QuestIndex, TensorStorage
-from kvdb.indexes.quest.reference import (
+from kvweave import BruteForceIndex, QuestIndex, TensorStorage
+from kvweave.indexes.quest.reference import (
     candidate_recall,
     full_attention,
     selected_attention,

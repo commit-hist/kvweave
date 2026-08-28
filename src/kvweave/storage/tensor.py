@@ -2,8 +2,8 @@
 
 import torch
 
-from kvdb.core.types import RetrievedKV, Selection, validate_kv_tensors
-from kvdb.profiling import profile_component
+from kvweave.core.types import RetrievedKV, Selection, validate_kv_tensors
+from kvweave.profiling import profile_component
 
 
 class TensorStorage:

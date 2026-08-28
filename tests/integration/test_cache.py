@@ -1,8 +1,8 @@
 import pytest
 import torch
 
-from kvdb import BruteForceIndex, KVCache, QuestIndex, TensorStorage
-from kvdb.indexes.quest.reference import selected_attention
+from kvweave import BruteForceIndex, KVCache, QuestIndex, TensorStorage
+from kvweave.indexes.quest.reference import selected_attention
 
 
 def test_cache_build_retrieve_interaction() -> None:

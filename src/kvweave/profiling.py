@@ -1,7 +1,7 @@
 """Lightweight, opt-in profiling support for reference experiments.
 
 The recorder is intentionally internal instrumentation rather than a public
-KVDB interface.  Normal execution has no active recorder; benchmark programs
+KVWeave interface.  Normal execution has no active recorder; benchmark programs
 can activate one and attach fixture, strategy, decode-step, and layer context
 without threading profiler arguments through the storage/index contracts.
 """
@@ -75,11 +75,11 @@ class ComponentProfiler:
 
 
 _ACTIVE_PROFILER: ContextVar[ComponentProfiler | None] = ContextVar(
-    "kvdb_active_component_profiler",
+    "kvweave_active_component_profiler",
     default=None,
 )
 _PROFILE_CONTEXT: ContextVar[Mapping[str, ProfileValue]] = ContextVar(
-    "kvdb_component_profile_context",
+    "kvweave_component_profile_context",
     default={},
 )
 
@@ -107,7 +107,7 @@ def profile_component(component: str) -> Iterator[None]:
         return
 
     operator_range: Any = (
-        torch.profiler.record_function(f"kvdb::{component}")
+        torch.profiler.record_function(f"kvweave::{component}")
         if profiler.emit_operator_ranges
         else nullcontext()
     )

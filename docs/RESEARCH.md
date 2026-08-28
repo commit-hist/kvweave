@@ -1,7 +1,7 @@
 # Research Notes
 
-This document records the research provenance used by KVDB. Algorithmic ideas,
-observations from upstream implementations, and KVDB-authored code are kept
+This document records the research provenance used by KVWeave. Algorithmic ideas,
+observations from upstream implementations, and KVWeave-authored code are kept
 separate so that attribution and licensing remain explicit.
 
 ## Pythia-410M Phase 4 reference decode profiling
@@ -72,7 +72,7 @@ inside layer wall time after all named non-overlapping scopes.
 | total layers | 76.902 | 83.667 | 85.266 |
 | total decode step | 86.175 | 92.827 | 94.964 |
 
-KVDB retrieval overhead is defined here as index update/rebuild, search,
+KVWeave retrieval overhead is defined here as index update/rebuild, search,
 selection policy, and `TensorStorage.fetch`; selected attention remains model
 attention whose cost depends on `K`. Normal model compute is QKV/RoPE, the
 common full-precision K/V append, output projection, MLP, layer norms/residuals,
@@ -366,7 +366,7 @@ Phase 3B retains the exact Pythia-410M model revision
 `9879c9b5f8bea9051dcb0e68dff21493d67e9d4f`, Transformers 5.15.1 source
 revision `550d7b3834670483a4df436541272c055dc364bf`, fused-QKV interpretation,
 partial RoPE, attention scale `0.125`, Quest ranking, PQ ranking, and shared
-KVDB interfaces accepted in Phase 3A. The full gitignored structured result is
+KVWeave interfaces accepted in Phase 3A. The full gitignored structured result is
 `benchmarks/results/pythia-410m-phase3b-decode.json`; exact dense logits,
 per-layer attention outputs, residual streams, and cache lengths are stored in
 `benchmarks/results/pythia-410m-phase3b-dense-tensors.pt`, SHA-256
@@ -418,7 +418,7 @@ included the newest token. Quest and PQ both had zero observed logit, attention-
 output, and residual-stream error against dense; attention-mass deviation from
 one was at most `2.5034e-6` from float32 summation.
 
-This answers the existential Phase 3B question positively: KVDB retrieval can
+This answers the existential Phase 3B question positively: KVWeave retrieval can
 operate in a stateful multi-token loop without architectural failure. Stateful
 decode required no change to `KVIndex`, `Selection`, `KVStorage`, `RetrievedKV`,
 or `KVCache`. The only strategy-specific addition is PQ code append against
@@ -533,7 +533,7 @@ exclude allocator overhead and do not establish production memory savings.
 
 ### Evidence decision and exact next experiment
 
-Phase 3B strengthens the central KVDB hypothesis: two distinct indexes retain
+Phase 3B strengthens the central KVWeave hypothesis: two distinct indexes retain
 one storage/selection/cache boundary through causal KV growth and multi-token
 state evolution, and both exactly recover dense decode at full budget. It also
 weakens any claim that a fixed partial budget is automatically generation-safe:
@@ -564,7 +564,7 @@ before/after benchmark preserves every Phase 3B correctness control.
   resolved from `main` and pinned before model download on 2026-08-27. The
   model card says branch `step143000` is the same final checkpoint as `main`.
 - **Model license:** Apache-2.0, as declared by the pinned model-card metadata
-  and its Model Details section. This is a license for the model release; KVDB
+  and its Model Details section. This is a license for the model release; KVWeave
   does not copy model or Transformers source into the repository.
 - **Pinned Transformers experiment dependency:** `transformers==5.15.1`,
   Apache-2.0. Tag `v5.15.1` resolves to source commit
@@ -598,7 +598,7 @@ found, so the requested model choice was retained.
 
 ### Extraction, RoPE, causality, and reconstruction
 
-KVDB does not patch the model's attention path. For selected layers, a forward
+KVWeave does not patch the model's attention path. For selected layers, a forward
 hook observes `GPTNeoXAttention.query_key_value`, whose native fused output is
 `[B, S, 3 * hidden]`. GPT-NeoX interprets this as `[B, S, H, 3 * D]`, then
 transposes and chunks the final dimension into Q/K/V `[B, H, S, D]`. Splitting
@@ -1179,7 +1179,7 @@ the learned features recovered only `7.2%/12.1%/19.6%`, lost to layer/head at
 every budget, and exceeded the overhead limit. The frozen classification is
 therefore **D — ORACLE GAP NOT PREDICTABLE WITH CHEAP FEATURES**.
 
-No adaptive planner is justified now. No shared KVDB abstraction, Quest/PQ
+No adaptive planner is justified now. No shared KVWeave abstraction, Quest/PQ
 implementation, or public/core policy type changed.
 
 The exact proposed next experiment is one final preregistered metadata-only
@@ -1212,7 +1212,7 @@ baselines only. This next experiment has not been started.
 
 The 30-page arXiv v2/SIGMOD paper was reviewed in full. Reported model-quality
 and latency results belong to the authors' model, hardware, workload, and
-runtime configuration. KVDB has not reproduced them and does not use them as a
+runtime configuration. KVWeave has not reproduced them and does not use them as a
 performance claim.
 
 ### Standard product-quantization concepts
@@ -1261,12 +1261,12 @@ part of standard PQ:
   selection.
 
 Those policies materially affect the paper's end-to-end semantics and latency,
-but they are intentionally outside KVDB's Phase 2 reference-PQ experiment.
+but they are intentionally outside KVWeave's Phase 2 reference-PQ experiment.
 
 ### Behavior observed in the official repository
 
 The following observations describe revision `0b74e125...`; they are not a
-specification for KVDB and no source was copied:
+specification for KVWeave and no source was copied:
 
 - The main runtime defaults to Euclidean K-means for each head/subspace and
   uses centroid dot-product lookup tables for approximate token scoring. A
@@ -1289,14 +1289,14 @@ specification for KVDB and no source was copied:
   codebooks are not retrained during ordinary short-output decoding.
 - The implementation includes CUDA/FlashAttention integration, multiprocessing
   CPU clustering, cache management, model patches, GQA handling, dataset
-  evaluation, and timing overlap. None is needed to test KVDB's index/storage
+  evaluation, and timing overlap. None is needed to test KVWeave's index/storage
   boundary.
 
 ### Repository licensing and provenance boundary
 
 Revision `0b74e125...` has **no top-level `LICENSE`, `COPYING`, or `NOTICE`
 file**, and GitHub reports no detected repository license. Publication of
-source code alone does not grant KVDB permission to copy, modify, or
+source code alone does not grant KVWeave permission to copy, modify, or
 redistribute it. The paper's ACM publication notice is a publication license,
 not a software license for the repository.
 
@@ -1308,7 +1308,7 @@ files without a uniform top-level notice, and a shared-memory helper explicitly
 marked as copied from an external gist. These file-level origins must not be
 collapsed into a single assumed license.
 
-Accordingly, KVDB will not copy or adapt any upstream PQCache source, including
+Accordingly, KVWeave will not copy or adapt any upstream PQCache source, including
 its PQ search/compressor, initialization details, multiprocessing code,
 GPU-cache manager, model patches, attention kernels, evaluation code, or
 third-party subtrees. Any future source reuse would require an explicit license
@@ -1316,9 +1316,9 @@ from the relevant copyright holder plus a file-by-file provenance and notice
 audit. Phase 2 uses only independently written code based on the paper's
 mathematical description and standard PQ concepts.
 
-### KVDB independent reference implementation
+### KVWeave independent reference implementation
 
-KVDB now has a deterministic, readable PyTorch reference with equal contiguous
+KVWeave now has a deterministic, readable PyTorch reference with equal contiguous
 subspaces, bounded Lloyd-style K-means, explicit farthest-error reinitialization
 for empty clusters, nearest-centroid encoding, and raw-dot-product lookup-table
 scoring. It returns the existing token-level `Selection`, fetches through
@@ -1336,7 +1336,7 @@ It intentionally does not reproduce adaptive iteration scheduling, CPU/GPU
 offload, packed codes, the initial/local-token policy, incremental decode
 updates, GQA aggregation, GPU caching, FlashAttention, model integration,
 multiple processes, or the PQCache evaluation runtime. Its reconstruction and
-synthetic recall/error measurements are diagnostics for the KVDB architecture
+synthetic recall/error measurements are diagnostics for the KVWeave architecture
 hypothesis, not a reproduction of PQCache's quality or performance results.
 
 ## Quest
@@ -1359,7 +1359,7 @@ hypothesis, not a reproduction of PQCache's quality or performance results.
 
 The paper's camera-ready PDF and the upstream README report up to 7.03x
 self-attention speedup and 2.23x end-to-end inference speedup under their tested
-conditions. The PMLR HTML abstract appears to swap those two quantities. KVDB
+conditions. The PMLR HTML abstract appears to swap those two quantities. KVWeave
 has not reproduced either result and makes no performance claim from them.
 
 ### Ideas described in the paper
@@ -1399,7 +1399,7 @@ prefill. These model-policy choices are not intrinsic to the page estimator.
 ### Behavior observed in the official repository
 
 The following details are observations of revision `01c1623...`, not additions
-to the paper's algorithm and not commitments for KVDB:
+to the paper's algorithm and not commitments for KVWeave:
 
 - The optimized path updates min/max metadata incrementally as keys are appended
   to paged storage. RoPE is applied before keys are appended, so metadata is
@@ -1425,7 +1425,7 @@ to the paper's algorithm and not commitments for KVDB:
 - GQA support is not a safe Phase 1 assumption. The README says GQA models are
   supported and the evaluation code can repeat KV heads, while the inspected
   optimized estimator test explicitly requires equal query and KV head counts.
-  KVDB should initially test one query per KV head and revisit GQA at the model
+  KVWeave should initially test one query per KV head and revisit GQA at the model
   integration boundary.
 
 These observations are useful for designing boundary-case tests, especially for
@@ -1443,19 +1443,19 @@ portions. However, the repository also:
 - states that it adapts snippets from H2O, StreamingLLM, and Punica.
 
 The top-level MIT license must not be treated as replacing those third-party
-licenses or notices. KVDB will not copy the upstream CUDA kernels, model forks,
+licenses or notices. KVWeave will not copy the upstream CUDA kernels, model forks,
 cache manager, evaluation helpers, or third-party-derived snippets. Any future
 proposal to incorporate upstream source must first trace that file's provenance,
 verify all applicable licenses, preserve required notices, and document the
 derivation.
 
-### KVDB implementation status
+### KVWeave implementation status
 
-KVDB now has an independent, readable PyTorch Quest-style reference index based
+KVWeave now has an independent, readable PyTorch Quest-style reference index based
 on the paper's mathematical description. No upstream Quest source code, CUDA
 kernels, model forks, cache-management code, or evaluation helpers were copied.
 Quest remains attributed to Tang et al.; the official upstream implementation
-is MIT licensed as recorded above. KVDB's code is an independent implementation,
+is MIT licensed as recorded above. KVWeave's code is an independent implementation,
 not a port or claim of algorithmic originality.
 
 Implemented and model-download-free validated behavior includes:
@@ -1468,10 +1468,10 @@ Implemented and model-download-free validated behavior includes:
 - ordinary selected-token attention compared with full synthetic attention.
 
 The reference tie policy is descending page score, then ascending page ID, with
-ascending token IDs within each ranked page. This is a KVDB reproducibility
+ascending token IDs within each ranked page. This is a KVWeave reproducibility
 choice; upstream tie compatibility has not been established.
 
-KVDB's paper-level index differs deliberately from observed upstream runtime
+KVWeave's paper-level index differs deliberately from observed upstream runtime
 policies. It does not force-include the newest page, keep early transformer
 layers dense, decide where RoPE or incremental metadata updates occur, impose an
 upstream evaluation minimum page count, or aggregate GQA query heads. Those are

@@ -16,14 +16,14 @@ python_distribution(
     name="dist",
     dependencies=[
         ":package_metadata",
-        "src/kvdb:lib",
+        "src/kvweave:lib",
     ],
     long_description_path="README.md",
     provides=python_artifact(
-        name="kvdb",
+        name="kvweave",
         version="0.0.1",
         author="Keyur Gabani",
-        description="Experimental indexing and retrieval infrastructure for LLM KV caches",
+        description="Experimental KV-cache retrieval and indexing infrastructure for LLM inference.",
         license="Apache-2.0",
         license_files=["LICENSE", "NOTICE"],
         long_description_content_type="text/markdown",

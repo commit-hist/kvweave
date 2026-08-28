@@ -19,7 +19,7 @@ from benchmarks.phase3a import (
     TextFixture,
     build_deterministic_fixture,
 )
-from kvdb.integrations.transformers import (
+from kvweave.integrations.transformers import (
     DecodeMode,
     DecodeStrategy,
     DensePrefillSnapshot,

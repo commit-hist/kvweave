@@ -4,7 +4,7 @@ from typing import Protocol
 
 import torch
 
-from kvdb.core.types import RetrievedKV, Selection
+from kvweave.core.types import RetrievedKV, Selection
 
 
 class KVIndex(Protocol):

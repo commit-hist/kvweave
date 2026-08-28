@@ -42,7 +42,7 @@ from benchmarks.scripts.phase3b_decode import (
     hardware_name,
     validate_hugging_face_generation,
 )
-from kvdb.integrations.transformers import (
+from kvweave.integrations.transformers import (
     DecodeStrategy,
     DensePrefillSnapshot,
     GPTNeoXDecodeRunner,
@@ -53,7 +53,7 @@ from kvdb.integrations.transformers import (
     relative_tensor_error,
     validate_gpt_neox_config,
 )
-from kvdb.profiling import (
+from kvweave.profiling import (
     ComponentProfiler,
     ComponentTiming,
     aggregate_component_timings,

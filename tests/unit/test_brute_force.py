@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from kvdb.indexes.brute_force import BruteForceIndex
+from kvweave.indexes.brute_force import BruteForceIndex
 
 
 def test_exact_topk_indices_and_scores() -> None:

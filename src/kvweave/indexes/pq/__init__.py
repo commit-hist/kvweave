@@ -1,7 +1,7 @@
 """Independent readable product-quantization retrieval."""
 
-from kvdb.indexes.pq.index import PQIndex
-from kvdb.indexes.pq.reference import (
+from kvweave.indexes.pq.index import PQIndex
+from kvweave.indexes.pq.reference import (
     KMeansResult,
     PQMetadata,
     append_pq_codes,

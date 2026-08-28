@@ -1,7 +1,7 @@
 """Offline support for the Phase 3A policy-feasibility experiment.
 
 This module is research/benchmark code.  It deliberately does not define a
-public policy, planner, router, or adaptive-index abstraction in ``kvdb``.
+public policy, planner, router, or adaptive-index abstraction in ``kvweave``.
 """
 
 from collections import defaultdict

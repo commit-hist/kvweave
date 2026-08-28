@@ -1,10 +1,10 @@
 import pytest
 import torch
 
-from kvdb import BruteForceIndex, KVCache, RetrievedKV, TensorStorage
-from kvdb.core.types import Selection
-from kvdb.indexes.quest import QuestIndex, build_page_metadata, score_pages
-from kvdb.indexes.quest.reference import (
+from kvweave import BruteForceIndex, KVCache, RetrievedKV, TensorStorage
+from kvweave.core.types import Selection
+from kvweave.indexes.quest import QuestIndex, build_page_metadata, score_pages
+from kvweave.indexes.quest.reference import (
     candidate_recall,
     compare_attention,
     selected_attention,

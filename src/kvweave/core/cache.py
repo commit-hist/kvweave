@@ -2,8 +2,8 @@
 
 import torch
 
-from kvdb.core.interfaces import KVIndex, KVStorage
-from kvdb.core.types import RetrievedKV, validate_kv_tensors
+from kvweave.core.interfaces import KVIndex, KVStorage
+from kvweave.core.types import RetrievedKV, validate_kv_tensors
 
 
 class KVCache:

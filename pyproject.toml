@@ -3,9 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "kvdb"
+name = "kvweave"
 version = "0.0.1"
-description = "Experimental indexing and retrieval infrastructure for LLM KV caches"
+description = "Experimental KV-cache retrieval and indexing infrastructure for LLM inference."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
