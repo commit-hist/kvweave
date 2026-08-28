@@ -16,18 +16,20 @@ Our job is to build a focused layer between inference engines and KV storage/ret
 
 ## Current Phase
 
-We are in **Phase 0 / Phase 1: technical validation**.
+Phases 0–3 validated research provenance, shared retrieval/storage abstractions,
+synthetic correctness, real GPT-NeoX/Pythia activations, and stateful decode.
+Phase 4 completed profiling of the accepted reference path.
 
-Do not optimize for feature completeness.
+The current public-release work presents KVWeave as an **Experimental Research
+Preview**. Correctness-first Quest-style page retrieval and PQ-style token
+retrieval are implemented, but optimized kernels and production runtime
+integrations are not. Optimization remains future Phase 5 work and must follow
+the reviewed Phase 4 evidence; it is not part of repository hardening.
 
-The immediate goal is to determine whether multiple KV retrieval strategies can operate behind one clean interface without sacrificing the performance characteristics that make those strategies useful.
+Do not optimize for feature completeness or imply that reference CPU timings
+are performance claims.
 
-Initial strategies:
-
-1. Quest-style page-level KV retrieval
-2. PQCache-style product-quantized KV retrieval
-
-Initial implementation priority:
+Current implementation priority remains:
 
 1. Correctness
 2. Reproducibility
@@ -347,7 +349,9 @@ Do not optimize page scoring until this behavior is validated.
 
 # PQ Implementation Guidance
 
-PQ is Phase 2 unless specifically requested.
+The PQ reference was completed in Phase 2. Any future PQ changes must preserve
+the accepted ranking, shared-interface, correctness, and attribution boundaries
+unless a task explicitly authorizes a new research phase.
 
 When implemented:
 

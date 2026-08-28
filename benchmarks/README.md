@@ -1,13 +1,21 @@
 # Benchmarks
 
-Benchmarks are first-class research code. These synthetic reference scripts
-validate measurement and correctness behavior; their numbers are not model
-quality evidence or performance claims.
+> **Reference timing results are intended for diagnosis and reproducibility,
+> not performance claims.** KVWeave has no optimized production runtime, and
+> benchmark results must not be generalized beyond their recorded model,
+> revision, tensors/data, hardware, dtype, context, budget, and commit.
+
+Benchmarks are first-class research code. Synthetic reference scripts validate
+measurement and correctness behavior; real-model and decode experiments have
+separate evidence boundaries. Large result JSON, tensor sidecars, and profiler
+traces are written under gitignored paths and do not ship in Git.
 
 From the repository root, run `mise install` once to install the locked Python
 and Pants launcher. The benchmark tasks below delegate execution to Pants, which
 builds each benchmark's isolated environment from the repository dependency
 lockfile.
+
+## Correctness and reference benchmarks
 
 Run the exact brute-force retrieval benchmark with:
 
@@ -85,6 +93,8 @@ the configured centroid count. Codebook storage reports actual tensor bytes.
 The reference does not implement bit packing. Quest/PQ Python timings describe
 different readable algorithms and must not be used to claim that either
 strategy is faster or better.
+
+## Real-model activation experiments
 
 Run the opt-in Phase 3A Pythia real-activation experiment with:
 
@@ -181,7 +191,7 @@ causal slicing, attention reconstruction, Quest, and PQ setup from structural
 replication. It reports policy regret and cost; it makes no decode, generation,
 downstream-quality, optimized-latency, or production-performance claim.
 
-## Phase 3B stateful decode validation
+## Decode experiments: Phase 3B
 
 Run the pinned Phase 3B matrix with:
 
@@ -224,7 +234,7 @@ Ordinary pytest remains offline. Reference CPU timings identify possible future
 profiling targets only; they must not be interpreted as speedups or production
 memory savings.
 
-## Phase 4 fixed decode profile
+## Profiling: Phase 4
 
 Run the frozen Phase 4 profile with:
 
@@ -252,3 +262,10 @@ representative final dense, Quest 50%, and PQ 50% step are written under
 Phase 4 does not optimize either strategy or choose an implementation backend.
 Its timings are measurements of the readable reference path on the recorded
 machine/thread configuration, not speedup claims.
+
+## Future optimized benchmarks
+
+No optimized benchmark result exists yet. A future Phase 5 before/after result
+must retain the same correctness and quality controls, record complete hardware
+and workload provenance, and compare against the frozen Phase 4 reference. Do
+not infer a prospective speedup from component timings alone.

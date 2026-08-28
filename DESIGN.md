@@ -2,17 +2,19 @@
 
 ## Status
 
-**Experimental**
+**Experimental Research Preview**
 
-This document describes the initial architecture for KVWeave.
+This document describes the current implemented reference architecture and
+retains future ideas where they help explain the original design direction.
 
 The architecture is intentionally minimal and should evolve based on empirical results.
 
-Phase 2 synthetic validation and Phase 3A real-activation validation are
-accepted. Phase 3B has now validated that the same abstraction can operate in
-a stateful multi-token decode loop. Its reference timing and approximation
-results remain correctness/diagnostic evidence, not optimized-runtime or model-
-quality claims.
+Phases 0–3 validated research provenance, synthetic Quest/PQ behavior, shared
+interfaces, real Pythia activations, and stateful multi-token decode. Phase 4
+completed profiling of that unchanged path and selected narrow future
+optimization experiments. No Phase 5 optimization has started. All current
+timing and approximation results remain correctness/diagnostic evidence, not
+production-runtime, speedup, or general model-quality claims.
 
 ---
 
@@ -185,7 +187,8 @@ class KVIndex:
         ...
 ```
 
-Potential implementations:
+The current reference implementation is `TensorStorage`, which retains tensors
+on their existing PyTorch device. Potential future implementations include:
 
 ```text
 QuestIndex
@@ -226,7 +229,7 @@ PinnedCPUStorage
 SSDStorage
 ```
 
-Only CPU/GPU storage should be considered initially.
+Separate CPU/GPU/offloaded storage policies remain future work.
 
 ---
 
@@ -234,7 +237,7 @@ Only CPU/GPU storage should be considered initially.
 
 Algorithms should return a common selection representation.
 
-Possible initial form:
+Current form:
 
 ```python
 @dataclass
@@ -343,9 +346,7 @@ or:
 [batch, sequence, kv_heads, head_dim]
 ```
 
-KVWeave should establish one canonical internal layout during Phase 1.
-
-Suggested:
+KVWeave established the following canonical internal layout in Phase 1:
 
 ```text
 [B, Hkv, S, D]
@@ -380,9 +381,8 @@ grouped indexes
 index over compressed representations
 ```
 
-Phase 1 should implement the form closest to the chosen Quest reference algorithm.
-
-For the Phase 1 Quest reference, one query corresponds to one KV head. Queries
+The current Quest reference follows the paper-level per-head form. One query
+corresponds to one KV head. Queries
 therefore have shape:
 
 ```text
@@ -442,7 +442,7 @@ The reference implementation should favor readability over kernel efficiency.
 
 # 10. Quest Data Structures
 
-Potential representation:
+Current representation:
 
 ```python
 @dataclass
@@ -503,7 +503,7 @@ attention approximation error
 
 # 12. PQ Retrieval
 
-Product quantization is the second planned strategy.
+Product quantization is the second implemented reference strategy.
 
 Conceptually:
 
@@ -533,7 +533,8 @@ The first implementation should use an independent, readable PQ implementation.
 
 Do not immediately integrate external ANN libraries unless necessary.
 
-The purpose of Phase 2 is to understand the algorithm and abstraction boundary.
+Phase 2 used this implementation to validate the algorithm and abstraction
+boundary.
 
 ## Phase 2 reference evidence
 
@@ -622,7 +623,7 @@ Do not implement both yet.
 
 # 14. Attention Integration
 
-Phase 1 should avoid rewriting model attention kernels.
+The current reference path avoids rewriting model attention kernels.
 
 Instead:
 
@@ -719,9 +720,10 @@ products; the positive model scale does not change that ranking. Reference
 attention applies the model scale, causal semantics, float32 softmax, and value
 aggregation separately.
 
-Actual approximate decode/generation integration is Phase 3B. Phase 3A cannot
-support perplexity, downstream quality, generation-equivalence, end-to-end
-latency, or speedup claims.
+Phase 3A does not support perplexity, downstream quality,
+generation-equivalence, end-to-end latency, or speedup claims. Stateful
+approximate decode/generation integration was subsequently implemented and
+validated in Phase 3B under the separate evidence boundary below.
 
 ## Phase 3B evidence boundary
 
@@ -926,19 +928,17 @@ We want the Pareto frontier.
 
 # 20. Hardware Strategy
 
-## Phase 1
+## Current reference and completed profiling
 
-PyTorch reference implementation.
+Phases 1–3 use readable PyTorch reference implementations. Phase 4 profiled the
+CPU/float32 Pythia-410M decode path on the recorded Apple Silicon machine and
+selected specific future experiments; it did not choose or implement an
+optimization backend.
 
-CPU and/or CUDA depending on available development hardware.
+## Future optimization backends
 
-## Phase 2
-
-Profile real bottlenecks.
-
-## Phase 3
-
-Potential optimization backends:
+Only after a correctness-preserving before/after experiment and new profiling,
+potential backends may include:
 
 ```text
 Triton
@@ -1135,7 +1135,7 @@ Never extrapolate benchmark results beyond tested conditions.
 
 # 27. Phase Plan
 
-## Phase 0 — Research
+## Phase 0 — Research (complete)
 
 * review Quest
 * review PQCache
@@ -1143,7 +1143,7 @@ Never extrapolate benchmark results beyond tested conditions.
 * document algorithms
 * choose baseline tensors/model
 
-## Phase 1 — Quest Reference
+## Phase 1 — Quest Reference (complete)
 
 * canonical tensor format
 * brute-force oracle
@@ -1156,7 +1156,7 @@ Exit condition:
 
 > Full-vs-Quest benchmark runs reproducibly.
 
-## Phase 2 — PQ Reference
+## Phase 2 — PQ Reference (complete)
 
 * PQ encoder
 * codebooks
@@ -1172,7 +1172,7 @@ The reference implementation and synthetic end-to-end tests now satisfy this
 exit condition without modifying the shared interfaces. Model-level and
 optimized-runtime questions remain for later phases.
 
-## Phase 3A — Real-Activation Validation
+## Phase 3A — Real-Activation Validation (complete)
 
 * minimal Hugging Face GPT-NeoX adapter
 * post-RoPE real Q/K/V extraction
@@ -1185,7 +1185,7 @@ Exit condition:
 > Quest and PQ preserve their common path on validated real activations, and
 > every full-budget experiment recovers the complete causal KV set.
 
-## Phase 3B — Decode/Generation Integration
+## Phase 3B — Decode/Generation Integration (complete)
 
 * complete: explicit one-token GPT-NeoX decode path after dense prefill
 * complete: dense/Hugging Face generation equivalence
@@ -1198,17 +1198,19 @@ metrics.
 Exit evidence:
 
 > Stateful multi-token decode preserved the shared KVWeave abstraction and exact
-> full-budget behavior. Partial retrieval errors can compound, so Phase 4 may
-> profile the proven path but must not assume that one fixed sparse setting is
-> quality-safe or choose an optimization backend without measurement.
+> full-budget behavior. Partial retrieval errors can compound. Phase 4
+> subsequently profiled this proven path without assuming that one fixed sparse
+> setting was quality-safe or choosing an optimization backend.
 
-## Phase 4 — Profiling
+## Phase 4 — Profiling (complete)
 
-Identify bottlenecks.
+The accepted reference decode path was profiled without changing ranking,
+decode, storage, attention, or model-integration semantics. The measured Quest
+target is metadata rebuild; the measured PQ target is stable full-score
+ranking. These are inputs to future experiments, not completed optimizations or
+speedup claims.
 
-No optimization backend is chosen before this phase.
-
-## Phase 5 — Optimization
+## Phase 5 — Optimization (future; not started)
 
 Potential:
 
@@ -1220,7 +1222,7 @@ Rust
 Metal
 ```
 
-## Phase 6 — Runtime Integration
+## Phase 6 — Runtime Integration (future; not started)
 
 Potential first targets:
 

@@ -4,6 +4,53 @@ This document records the research provenance used by KVWeave. Algorithmic ideas
 observations from upstream implementations, and KVWeave-authored code are kept
 separate so that attribution and licensing remain explicit.
 
+## Contents
+
+- [Public-preview provenance and dependency audit](#public-preview-provenance-and-dependency-audit)
+- [Phase 4 profiling](#pythia-410m-phase-4-reference-decode-profiling)
+- [Phase 3B stateful decode](#pythia-410m-phase-3b-autoregressive-decode-validation)
+- [Phase 3A real activations](#pythia-410m-phase-3a-activation-validation)
+- [Phase 3A structural replication](#pythia-410m-phase-3a-structural-replication)
+- [Phase 3A policy-feasibility negative result](#pythia-410m-phase-3a-policy-feasibility-validation)
+- [Phase 2 PQ/PQCache research](#phase-2-research-and-implementation-pqcache)
+- [Phase 0/1 Quest research](#phase-0phase-1-research-and-implementation-quest)
+
+## Public-preview provenance and dependency audit
+
+This audit was refreshed on 2026-08-28 against Git commit
+`8aefeb8e85876f33dfd74652c5d4d81d3b9b0e91` before the public-preview
+documentation changes. It records repository evidence and implementation
+boundaries; it is not a legal compatibility opinion.
+
+No model weights, upstream Quest/PQCache source, third-party source trees, or
+generated benchmark/profiler artifacts are tracked. Direct Python packages are
+depended upon through package metadata or development tooling rather than
+copied into KVWeave. The Pants lockfile is a universal resolver lock and lists
+platform-specific transitive artifacts, including CUDA packages on platforms
+where PyTorch selects them; those artifacts are not bundled in this source
+repository.
+
+| Component | Role in KVWeave | Recorded license | Bundled? | Evidence / boundary |
+| --- | --- | --- | --- | --- |
+| KVWeave | Project source | Apache-2.0 | yes | Canonical license text in [`LICENSE`](../LICENSE) and project notice in [`NOTICE`](../NOTICE). |
+| PyTorch (`torch>=2.2`) | Required tensor/runtime dependency | BSD-3-Clause | no | Required by `pyproject.toml`; upstream [license](https://github.com/pytorch/pytorch/blob/main/LICENSE). |
+| Transformers (`5.15.1`) | Optional pinned model-experiment dependency | Apache-2.0 | no | Optional extra only; exact source revision and model boundary are recorded in the Phase 3A section below; upstream [license](https://github.com/huggingface/transformers/blob/v5.15.1/LICENSE). |
+| EleutherAI Pythia-410M | Opt-in experiment model | Apache-2.0 as declared by the pinned model card | no | Downloaded only for opt-in tests/benchmarks; exact model revision is recorded below. |
+| pytest (`>=8,<9`) | Optional/default offline test dependency | MIT | no | `test` extra; upstream [license](https://github.com/pytest-dev/pytest/blob/main/LICENSE). |
+| setuptools (`>=77`) | PEP 517 build backend | MIT | no | Build-system dependency; upstream [license](https://github.com/pypa/setuptools/blob/main/LICENSE). |
+| Pants (`2.33.0`) and scie-pants (`0.13.2`) | Locked development/build/test orchestration | Apache-2.0 | no | Tool versions are pinned in `pants.toml` and `mise.toml`; upstream [Pants license](https://github.com/pantsbuild/pants/blob/main/LICENSE) and [scie-pants license](https://github.com/pantsbuild/scie-pants/blob/main/LICENSE). |
+| Ruff (managed by Pants) | Formatting and linting | MIT | no | Tool environment is managed by Pants; upstream [license](https://github.com/astral-sh/ruff/blob/main/LICENSE). |
+| Mise (developer-installed) | Toolchain/task launcher | MIT | no | Required by the documented development workflow but not packaged with KVWeave; upstream [license](https://github.com/jdx/mise/blob/main/LICENSE). |
+| Quest paper/repository | Origin of the page-retrieval idea and implementation cross-check | Official repository MIT, with file/submodule caveats | no | KVWeave implementation is independent; the exact upstream revision and exclusions are recorded below. |
+| PQCache paper/repository | Research context for PQ-style KV retrieval | No top-level upstream repository license at the inspected revision | no | No upstream PQCache source may be copied or adapted; KVWeave uses an independent standard-PQ implementation based on the paper-level description. |
+
+The existing `NOTICE` intentionally contains only the KVWeave project notice.
+Research citation is distinct from attribution for copied or redistributed
+software: studying a paper or depending on an installed package does not by
+itself add that project's text to KVWeave's `NOTICE`. Any future vendoring,
+source adaptation, or binary redistribution requires a new file-by-file notice
+and license audit.
+
 ## Pythia-410M Phase 4 reference decode profiling
 
 ### Frozen methodology and evidence boundary
@@ -1194,7 +1241,7 @@ least 0.01 mean mass with a positive fixture-cluster 95% lower bound at two
 budgets, stop query-adaptive policy work and retain fixed/static research
 baselines only. This next experiment has not been started.
 
-## PQCache
+## Phase 2 research and implementation: PQCache
 
 ### Sources and attribution
 
@@ -1339,7 +1386,7 @@ multiple processes, or the PQCache evaluation runtime. Its reconstruction and
 synthetic recall/error measurements are diagnostics for the KVWeave architecture
 hypothesis, not a reproduction of PQCache's quality or performance results.
 
-## Quest
+## Phase 0/Phase 1 research and implementation: Quest
 
 ### Sources and attribution
 
