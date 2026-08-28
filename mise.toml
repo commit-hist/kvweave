@@ -14,7 +14,7 @@ description = "Check Ruff formatting and lint rules through Pants"
 run = "pants lint ::"
 
 [tasks.test]
-description = "Run the complete test suite through Pants"
+description = "Run the default offline test suite through Pants"
 run = "pants test ::"
 
 [tasks.package]
