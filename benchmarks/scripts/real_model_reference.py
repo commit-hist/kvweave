@@ -37,7 +37,7 @@ from kvweave.integrations.transformers import (
 DEFAULT_MODEL_ID = "EleutherAI/pythia-410m"
 DEFAULT_MODEL_REVISION = "9879c9b5f8bea9051dcb0e68dff21493d67e9d4f"
 DETERMINISTIC_TEXT = (
-    # Frozen before the rename; retain these bytes for comparable model inputs.
+    # This legacy pre-KVWeave literal is frozen for comparable model inputs.
     "KVDB studies whether key value cache retrieval can be separated from "
     "storage while preserving the attention behavior of a transformer. "
     "This repeated local corpus creates deterministic real model activations "

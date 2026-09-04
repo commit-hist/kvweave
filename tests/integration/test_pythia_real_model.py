@@ -51,7 +51,7 @@ def test_pinned_pythia_attention_reconstruction_and_full_budget_indexes() -> Non
         dtype=torch.float32,
         attn_implementation="eager",
     )
-    # Frozen before the rename; retain these bytes for stable activation controls.
+    # This legacy pre-KVWeave literal is frozen for stable activation controls.
     token_ids = tokenizer(
         "A deterministic Pythia activation validation sequence for KVDB. ",
         add_special_tokens=False,
