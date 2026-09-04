@@ -9,14 +9,10 @@ current `main` branch is the only version considered for security fixes.
 Do not open a public issue for a suspected vulnerability or include sensitive
 details in a public discussion.
 
-**Release blocker:** this repository does not currently document a real private
-security contact. Before making the repository public, maintainers must enable
-GitHub private vulnerability reporting and verify that the private report flow
-works. Once configured, use the repository's **Security → Report a
-vulnerability** flow.
-
-No email address is listed here because no security mailbox was found in the
-repository metadata and one must not be invented.
+Report suspected vulnerabilities privately to
+`security-kvweave@gabani.org`. Once GitHub private vulnerability reporting is
+enabled, reporters may alternatively use the repository's **Security → Report
+a vulnerability** flow.
 
 ## Security boundaries
 
