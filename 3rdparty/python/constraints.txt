@@ -1,0 +1,2 @@
+# Keep research and CI environments on the last validated PyTorch release.
+torch==2.13.0

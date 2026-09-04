@@ -27,6 +27,18 @@ python -m pip install dist/kvweave-0.0.1-py3-none-any.whl
 python -c "import kvweave; print(kvweave.__version__)"
 ```
 
+The Pants environment pins validated dependency versions in
+`3rdparty/python/constraints.txt` and records the complete transitive graph in
+`3rdparty/python/default.lock`. Update both intentionally with:
+
+```bash
+mise exec -- pants generate-lockfiles --resolve=python-default
+```
+
+Do not remove required transitive packages from the resolve to reduce its
+size; select a compatible upstream distribution or change the environment
+materialization strategy instead.
+
 ## Running tests and experiments
 
 The default suite is offline and excludes tests marked `model_download`:
