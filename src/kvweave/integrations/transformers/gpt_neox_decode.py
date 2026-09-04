@@ -44,6 +44,13 @@ class DecodeStrategy(str, Enum):
     PQ = "pq"
 
 
+class QuestMetadataUpdateMode(str, Enum):
+    """Quest metadata maintenance path used by the decode integration."""
+
+    FULL_REBUILD = "full_rebuild"
+    INCREMENTAL = "incremental"
+
+
 def _synchronize(device: torch.device) -> None:
     if device.type == "cuda":
         torch.cuda.synchronize(device)
@@ -145,6 +152,9 @@ def update_decode_cache(
     keys: torch.Tensor,
     values: torch.Tensor,
     new_keys: torch.Tensor,
+    quest_metadata_update_mode: QuestMetadataUpdateMode = (
+        QuestMetadataUpdateMode.INCREMENTAL
+    ),
 ) -> None:
     """Apply the Phase 3B reference index/storage update policy."""
     validate_kv_tensors(keys, values)
@@ -157,7 +167,13 @@ def update_decode_cache(
     if strategy is DecodeStrategy.QUEST:
         if not isinstance(cache.index, QuestIndex):
             raise ValueError("Quest decode requires QuestIndex")
-        cache.build(keys, values)
+        if quest_metadata_update_mode is QuestMetadataUpdateMode.FULL_REBUILD:
+            cache.build(keys, values)
+        elif quest_metadata_update_mode is QuestMetadataUpdateMode.INCREMENTAL:
+            cache.index.append(new_keys)
+            cache.storage.put(keys, values)
+        else:
+            raise ValueError("unsupported Quest metadata update mode")
         return
     if strategy is DecodeStrategy.PQ:
         if not isinstance(cache.index, PQIndex):
@@ -347,6 +363,7 @@ class GPTNeoXDecodeState:
     current_length: int
     index_update_policy: str
     codebook_policy: str | None
+    quest_metadata_update_mode: QuestMetadataUpdateMode | None
 
 
 @dataclass(frozen=True)
@@ -460,6 +477,9 @@ class GPTNeoXDecodeRunner:
         pq_num_centroids: int = 8,
         pq_max_iterations: int = 8,
         seed: int = 0,
+        quest_metadata_update_mode: QuestMetadataUpdateMode = (
+            QuestMetadataUpdateMode.INCREMENTAL
+        ),
     ) -> GPTNeoXDecodeState:
         """Create an independent path and build its initial reference indexes."""
         if not math.isfinite(budget_fraction) or not 0.0 < budget_fraction <= 1.0:
@@ -509,7 +529,12 @@ class GPTNeoXDecodeRunner:
                 "none"
                 if strategy is DecodeStrategy.DENSE
                 else (
-                    "rebuild_page_metadata_after_each_append"
+                    (
+                        "incrementally_update_affected_quest_page_after_each_append"
+                        if quest_metadata_update_mode
+                        is QuestMetadataUpdateMode.INCREMENTAL
+                        else "rebuild_full_quest_metadata_after_each_append"
+                    )
                     if strategy is DecodeStrategy.QUEST
                     else "encode_appended_key_with_frozen_prefill_codebooks"
                 )
@@ -518,6 +543,9 @@ class GPTNeoXDecodeRunner:
                 "trained_on_dense_prefill_keys_and_frozen_during_decode"
                 if strategy is DecodeStrategy.PQ
                 else None
+            ),
+            quest_metadata_update_mode=(
+                quest_metadata_update_mode if strategy is DecodeStrategy.QUEST else None
             ),
         )
 
@@ -533,6 +561,9 @@ class GPTNeoXDecodeRunner:
             keys=layer_state.keys,
             values=layer_state.values,
             new_keys=new_keys,
+            quest_metadata_update_mode=(
+                state.quest_metadata_update_mode or QuestMetadataUpdateMode.INCREMENTAL
+            ),
         )
 
     @staticmethod

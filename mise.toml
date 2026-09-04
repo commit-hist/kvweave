@@ -75,3 +75,7 @@ run = "pants run benchmarks/scripts:phase3b_decode --"
 [tasks."bench:phase4-profile"]
 description = "Profile the frozen Pythia Phase 4 teacher-forced decode matrix"
 run = "pants run benchmarks/scripts:phase4_profile --"
+
+[tasks."bench:phase5a-quest-incremental"]
+description = "Validate and profile exact incremental Quest metadata maintenance"
+run = "pants run benchmarks/scripts:phase5a_quest_incremental --"

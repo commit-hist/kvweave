@@ -44,3 +44,8 @@ pex_binary(
     name="phase4_profile",
     entry_point="phase4_profile.py",
 )
+
+pex_binary(
+    name="phase5a_quest_incremental",
+    entry_point="phase5a_quest_incremental.py",
+)

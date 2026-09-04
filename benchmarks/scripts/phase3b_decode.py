@@ -25,6 +25,7 @@ from kvweave.integrations.transformers import (
     DensePrefillSnapshot,
     GPTNeoXDecodeRunner,
     GPTNeoXDecodeStep,
+    QuestMetadataUpdateMode,
     attention_mass_captured,
     generation_divergence_metrics,
     logit_comparison_metrics,
@@ -423,6 +424,7 @@ def run_approximate_path(
         pq_num_centroids=args.pq_centroids,
         pq_max_iterations=args.pq_iterations,
         seed=args.seed,
+        quest_metadata_update_mode=QuestMetadataUpdateMode.FULL_REBUILD,
     )
     path_tokens = [int(snapshot.next_token_logits.argmax(dim=-1).item())]
     records: list[dict[str, Any]] = []

@@ -6,6 +6,7 @@ from kvweave.core.types import Selection
 from kvweave.integrations.transformers import (
     DecodeMode,
     DecodeStrategy,
+    QuestMetadataUpdateMode,
     append_causal_kv,
     generation_divergence_metrics,
     logit_comparison_metrics,
@@ -77,7 +78,16 @@ def test_decode_selection_preserves_ragged_counts_and_masks_padding() -> None:
     assert torch.all(((prepared.indices == 4) & prepared.valid_mask).any(dim=-1)).item()
 
 
-def test_quest_decode_update_rebuilds_metadata_for_appended_length() -> None:
+@pytest.mark.parametrize(
+    "update_mode",
+    [
+        QuestMetadataUpdateMode.FULL_REBUILD,
+        QuestMetadataUpdateMode.INCREMENTAL,
+    ],
+)
+def test_quest_decode_update_extends_metadata_for_appended_length(
+    update_mode: QuestMetadataUpdateMode,
+) -> None:
     keys, values = make_kv(4)
     cache = KVCache(index=QuestIndex(page_size=2), storage=TensorStorage())
     cache.build(keys, values)
@@ -96,11 +106,69 @@ def test_quest_decode_update_rebuilds_metadata_for_appended_length() -> None:
         keys=appended_keys,
         values=appended_values,
         new_keys=new_keys,
+        quest_metadata_update_mode=update_mode,
     )
 
     assert cache.index.metadata.sequence_length == 5
     retrieved = cache.retrieve(torch.ones(1, 2, 4), budget=5)
     assert retrieved.keys.shape[2] == 5
+
+
+def test_quest_decode_incremental_update_matches_full_rebuild_oracle() -> None:
+    generator = torch.Generator().manual_seed(8_117)
+    all_keys = torch.randn(2, 3, 13, 5, generator=generator)
+    all_values = torch.randn(2, 3, 13, 5, generator=generator)
+    oracle = KVCache(index=QuestIndex(page_size=4), storage=TensorStorage())
+    incremental = KVCache(index=QuestIndex(page_size=4), storage=TensorStorage())
+    oracle.build(all_keys[:, :, :3], all_values[:, :, :3])
+    incremental.build(all_keys[:, :, :3], all_values[:, :, :3])
+
+    for sequence_length in range(4, all_keys.shape[2] + 1):
+        keys = all_keys[:, :, :sequence_length]
+        values = all_values[:, :, :sequence_length]
+        new_keys = all_keys[:, :, sequence_length - 1 : sequence_length]
+        update_decode_cache(
+            DecodeStrategy.QUEST,
+            oracle,
+            keys=keys,
+            values=values,
+            new_keys=new_keys,
+            quest_metadata_update_mode=QuestMetadataUpdateMode.FULL_REBUILD,
+        )
+        update_decode_cache(
+            DecodeStrategy.QUEST,
+            incremental,
+            keys=keys,
+            values=values,
+            new_keys=new_keys,
+            quest_metadata_update_mode=QuestMetadataUpdateMode.INCREMENTAL,
+        )
+
+        assert torch.equal(
+            incremental.index.metadata.minimum,
+            oracle.index.metadata.minimum,
+        )
+        assert torch.equal(
+            incremental.index.metadata.maximum,
+            oracle.index.metadata.maximum,
+        )
+        query = torch.randn(2, 3, 5, generator=generator)
+        budget = max(1, sequence_length // 2)
+        oracle_selection = oracle.index.search(query, budget)
+        incremental_selection = incremental.index.search(query, budget)
+        assert torch.equal(incremental_selection.indices, oracle_selection.indices)
+        assert torch.equal(incremental_selection.scores, oracle_selection.scores)
+        assert (
+            incremental_selection.valid_mask is None
+            and oracle_selection.valid_mask is None
+        ) or torch.equal(
+            incremental_selection.valid_mask,
+            oracle_selection.valid_mask,
+        )
+        oracle_kv = oracle.storage.fetch(oracle_selection)
+        incremental_kv = incremental.storage.fetch(incremental_selection)
+        assert torch.equal(incremental_kv.keys, oracle_kv.keys)
+        assert torch.equal(incremental_kv.values, oracle_kv.values)
 
 
 def test_pq_decode_update_freezes_codebooks_and_encodes_only_new_key() -> None:

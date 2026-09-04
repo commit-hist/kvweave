@@ -7,6 +7,7 @@ separate so that attribution and licensing remain explicit.
 ## Contents
 
 - [Public-preview provenance and dependency audit](#public-preview-provenance-and-dependency-audit)
+- [Phase 5A incremental Quest metadata](#pythia-410m-phase-5a-exact-incremental-quest-metadata)
 - [Phase 4 profiling](#pythia-410m-phase-4-reference-decode-profiling)
 - [Phase 3B stateful decode](#pythia-410m-phase-3b-autoregressive-decode-validation)
 - [Phase 3A real activations](#pythia-410m-phase-3a-activation-validation)
@@ -50,6 +51,181 @@ software: studying a paper or depending on an installed package does not by
 itself add that project's text to KVWeave's `NOTICE`. Any future vendoring,
 source adaptation, or binary redistribution requires a new file-by-file notice
 and license audit.
+
+## Pythia-410M Phase 5A exact incremental Quest metadata
+
+### Objective, implementation, and ownership
+
+Phase 5A tests only the first Quest optimization selected by Phase 4: replace
+the complete per-layer page-metadata rebuild after each decode append with an
+exact update of the affected final page. Initial dense-prefill construction
+still calls the unchanged `build_page_metadata` implementation. That full
+implementation also remains the decode-time correctness oracle and can be
+selected internally with `QuestMetadataUpdateMode.FULL_REBUILD`.
+
+The incremental state is the existing `QuestMetadata`: float32 page minima and
+maxima `[B,Hkv,P,D]`, page size, and sequence length. No generic mutable-index
+state was added. For a partial final page, the implementation clones each
+contiguous metadata tensor, replaces only its last page with
+`minimum(old_minimum, new_key)` or `maximum(old_maximum, new_key)`, and returns
+a new frozen metadata object. When the prior page is full, it concatenates the
+new `[B,Hkv,1,D]` key as one new minimum and maximum page. Filling an existing
+page requires no special case beyond the ordinary extrema update.
+
+Replacement rather than in-place mutation is deliberate. References to prior
+metadata objects and tensors remain unchanged, search results own their scores
+and selections, and caller-owned appended keys are not aliased as persistent
+metadata. The cost is an `O(H*P*D)` contiguous metadata copy for an existing
+page and equivalent metadata concatenation for a new page. Phase 5A does not
+introduce capacity management or preallocated arenas.
+
+The decode integration now uses incremental Quest maintenance by default and
+updates `TensorStorage` with the already-appended full K/V tensors. The frozen
+Phase 3B and Phase 4 runners explicitly request the full-rebuild oracle so
+their historical protocols remain reproducible. No Quest scoring, ranking,
+budget rounding, page expansion, newest-token inclusion, causal ordering,
+storage fetch, attention, PQ behavior, shared interface, or root-package
+export changed.
+
+### Correctness and quality gates
+
+Offline tests cover initial length one, sequences shorter than a page,
+existing-page appends, page-filling appends, new-page appends, exact boundaries,
+page size one, repeated appends, multiple batches/heads, positive/negative/mixed
+values, deterministic random tensors, ownership, profiling branches, and
+12.5%/25%/50%/100% search equivalence. Minima and maxima use `torch.equal`;
+no numerical tolerance is needed.
+
+The pinned real-model matrix used the same 1,024-token
+`technical_exposition` and `code_like` fixtures, 31 explicit teacher-forced
+retrieval steps, 24 layers, Quest p64, and 50%/100% budgets as Phase 4. Across
+four fixture/budget cells, all 2,976 layer-step comparisons had bit-exact
+metadata, page scores, page IDs, expanded token IDs, selection scores, masks,
+candidate counts, attention outputs/weights, residual streams, and logits.
+Dense generation remained bit-exact with Hugging Face. Both incremental 100%
+cells selected the complete causal state and passed the existing dense control.
+
+The pooled 50% metrics for both the oracle and incremental paths were Top-1
+agreement `0.983871`, Top-5 overlap `0.706452`, mean relative logit error
+`0.426711`, KL `0.050359`, attention mass `0.871941`, attention-output error
+`0.492359`, and residual-stream error `0.292816`. At 100%, agreement/overlap
+were one and logit, attention-output, and residual error were zero. These
+reproduce the frozen Phase 4 quality values; no quality movement was observed.
+
+### Environment and primary before/after timing
+
+The accepted gitignored artifact is
+`benchmarks/results/pythia-410m-phase5a-quest-incremental.json`. It was run
+from base commit `8cfbb94ea0d3c4bfa0083b29dfbf78e8a4338730` with the Phase 5A working
+tree dirty, on the same Apple M1 Max/64 GiB, macOS 26.6.2 arm64, CPython
+3.11.16, PyTorch 2.13.0, eight intra-op threads, and ten inter-op threads as
+Phase 4. Model, model revision, Transformers 5.15.1/source revision, CPU,
+float32, eager attention, fixtures, token lengths, teacher forcing, page size,
+budgets, and one-complete-replay warmup protocol were unchanged. No recorded
+environment field differed from Phase 4.
+
+Times below are milliseconds per complete 24-layer decode step: 31 observations
+per fixture cell, pooled to 62 for each path/budget summary. They compare the
+full-rebuild oracle and incremental path measured in the same Phase 5A run.
+
+| Budget | Component/path | Median | p90 | p95 | Difference of medians | Median reduction |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 50% | full metadata rebuild | 32.856 | 35.064 | 35.664 | — | — |
+| 50% | incremental metadata | 1.824 | 1.921 | 1.971 | 31.031 | 94.4% (18.0x) |
+| 50% | full-path retrieval | 70.236 | 74.829 | 75.657 | — | — |
+| 50% | incremental-path retrieval | 41.554 | 43.596 | 44.006 | 28.681 | 40.8% |
+| 50% | full-path decode step | 187.779 | 207.685 | 209.485 | — | — |
+| 50% | incremental-path decode step | 174.189 | 180.850 | 182.368 | 13.590 | 7.2% |
+| 100% | full metadata rebuild | 34.961 | 36.455 | 36.663 | — | — |
+| 100% | incremental metadata | 1.671 | 1.934 | 1.960 | 33.290 | 95.2% (20.9x) |
+| 100% | full-path retrieval | 87.396 | 89.759 | 91.060 | — | — |
+| 100% | incremental-path retrieval | 55.920 | 59.172 | 59.822 | 31.475 | 36.0% |
+| 100% | full-path decode step | 215.548 | 226.602 | 228.056 | — | — |
+| 100% | incremental-path decode step | 167.777 | 196.729 | 198.235 | 47.771 | 22.2% |
+
+Paired median savings were 30.964/33.278 ms for metadata, 28.118/31.735 ms
+for retrieval, and 14.502/48.093 ms for total decode at 50%/100%. Individual
+decode steps remain noisy and included negative paired outliers even though
+both medians improved.
+
+The same-run full oracle was materially slower than the frozen Phase 4 result:
+Phase 4 metadata medians were 21.097/21.323 ms, retrieval medians were
+49.561/58.784 ms, and decode medians were 143.023/144.740 ms at 50%/100%.
+The nominal recorded environment is identical, so the cause is unrecorded
+runtime variation rather than a known configuration difference. Phase 5A
+therefore supports the matched same-run reduction but does **not** claim that
+its absolute incremental decode time beats the historical Phase 4 wall time.
+
+### Incremental breakdown, allocation, traffic, and scaling
+
+Across layer calls, affected-page identification was 0.0030 ms median,
+existing-page minimum replacement 0.0384 ms, existing-page maximum replacement
+0.0240 ms, and state bookkeeping 0.0055 ms. The complete existing-partial-page
+path was 0.0717/0.0862/0.0928 ms median/p90/p95 across 2,880 layer calls. The
+new-page path was 0.0375/0.0464/0.0482 ms across 96 calls. At this small
+17-page shape, two contiguous metadata concatenations were cheaper than two
+clone-plus-tail-replacement paths.
+
+At representative `S=1,055`, the old path allocated two 132 KiB padding
+tensors and two 4.25 MiB padded key inputs per layer, plus 136 KiB of
+replacement metadata. The incremental existing-page path eliminates the
+padded inputs; it uses 136 KiB of replacement metadata and approximately 8 KiB
+of tail-extrema results. Persistent metadata remains 136 KiB per layer; there
+is no persistent overhead beyond the ordinary 8 KiB growth when a new page is
+created.
+
+Analytical logical metadata traffic falls from 8,781,824 bytes per layer
+(8,642,560 bytes of full-key reads plus 139,264 bytes written) to 303,104 bytes
+for safe replacement ownership (155,648 read and 147,456 written), a 96.5%
+reduction. These are shape-level estimates, not cache, allocator, or hardware
+counter measurements.
+
+The focused CPU/float32 synthetic benchmark fixed `B=1,H=16,D=64,p64`, used
+five warmups and 25 measurements, and produced:
+
+| S before append | Full rebuild median ms | New-page median ms | Existing-page median ms |
+| ---: | ---: | ---: | ---: |
+| 512 | 1.016 | 0.0237 | 0.0332 |
+| 2,048 | 2.499 | 0.0396 | 0.1355 |
+| 8,192 | 7.771 | 0.1630 | 0.1692 |
+| 32,768 | 27.883 | 0.4850 | 0.4616 |
+
+Full rebuild grows with `S`. Incremental time grows much more slowly but is not
+strictly constant because safe ownership copies the `O(S/page_size)` metadata
+container and a new page uses concatenation. Ratios at `S=32,768` were 57.5x
+for new-page and 60.4x for existing-page append. These synthetic results are
+scaling diagnostics, not production claims.
+
+After optimization, pooled retrieval medians rank storage fetch/gather first
+at 19.996 ms, page-to-token expansion second at 12.056 ms, newest-token policy
+at 7.201 ms, causal reordering at 6.987 ms, and metadata maintenance at 1.804
+ms. cProfile attributed 0.702 ms Python self time and 2.450 ms cumulative time
+to 24 `append_page_metadata` calls in a separately replayed step; small Python
+dispatch and PyTorch operations are therefore material relative to the now
+small update, but not an end-to-end dominant cost. The operator profile still
+shows `cat` dominated by unchanged full K/V causal append, not final-page
+metadata maintenance.
+
+### Decision and limitations
+
+Phase 5A meets all eight success criteria: exact metadata, search, selection,
+decode, 100%, and 50% controls passed; same-run metadata, retrieval, and decode
+medians improved; and no shared abstraction redesign was needed. The result is
+limited to one small standard-MHA model, one Apple CPU/thread configuration,
+two deterministic fixtures, one prompt length, 31 teacher-forced steps, and
+eager reference PyTorch. Absolute timing drift against Phase 4, contiguous
+metadata copies, `torch.cat` on page growth, analytical allocation/traffic,
+and noisy end-to-end paired observations remain explicit limitations.
+
+Compiled metadata work is not justified: the operation is now about 1.8 ms per
+24-layer step and no longer a top-four retrieval cost. A separate next Quest
+experiment is justified only as a new preregistered Phase 5 task: preserve
+exact token IDs, page scores, masks, partial-tail behavior, and causal policy
+while isolating page-to-token expansion/validity compaction, the largest
+remaining Quest-specific representation cost. That experiment has not begun.
+The top overall cost is shared `TensorStorage` fetch/gather and must not be
+misrepresented as a Quest-only optimization target. C++/Rust or another
+compiled backend is not justified by Phase 5A.
 
 ## Pythia-410M Phase 4 reference decode profiling
 

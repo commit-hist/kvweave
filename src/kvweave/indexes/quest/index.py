@@ -153,6 +153,66 @@ def build_page_metadata(keys: torch.Tensor, page_size: int) -> QuestMetadata:
     return metadata
 
 
+def append_page_metadata(
+    metadata: QuestMetadata,
+    new_keys: torch.Tensor,
+) -> QuestMetadata:
+    """Extend Quest extrema by exactly one causal key token.
+
+    ``new_keys`` has canonical shape ``[B, Hkv, 1, D]``. If the current final
+    page is partial, only its extrema are recomputed from the old extrema and
+    the new token. If the final page is full, one new metadata page is
+    appended. The returned metadata owns replacement tensors so references to
+    the previous metadata remain unchanged.
+    """
+    with profile_component("quest.metadata.incremental.identify_page"):
+        if not isinstance(metadata, QuestMetadata):
+            raise TypeError("metadata must be a QuestMetadata instance")
+        validate_keys(new_keys)
+        expected_shape = (
+            metadata.minimum.shape[0],
+            metadata.minimum.shape[1],
+            1,
+            metadata.minimum.shape[3],
+        )
+        if new_keys.shape != expected_shape:
+            raise ValueError(
+                f"new_keys must have shape {expected_shape} for one causal append"
+            )
+        if new_keys.dtype != metadata.minimum.dtype:
+            raise ValueError("new_keys and metadata must have the same dtype")
+        if new_keys.device != metadata.minimum.device:
+            raise ValueError("new_keys and metadata must be on the same device")
+        opens_new_page = metadata.sequence_length % metadata.page_size == 0
+
+    if opens_new_page:
+        with profile_component("quest.metadata.incremental.new_page_append"):
+            minimum = torch.cat((metadata.minimum, new_keys), dim=2)
+            maximum = torch.cat((metadata.maximum, new_keys), dim=2)
+    else:
+        new_token = new_keys[:, :, 0, :]
+        with profile_component("quest.metadata.incremental.existing_page_minimum"):
+            minimum = metadata.minimum.clone()
+            minimum[:, :, -1, :] = torch.minimum(
+                metadata.minimum[:, :, -1, :],
+                new_token,
+            )
+        with profile_component("quest.metadata.incremental.existing_page_maximum"):
+            maximum = metadata.maximum.clone()
+            maximum[:, :, -1, :] = torch.maximum(
+                metadata.maximum[:, :, -1, :],
+                new_token,
+            )
+
+    with profile_component("quest.metadata.incremental.state_bookkeeping"):
+        return QuestMetadata(
+            minimum=minimum,
+            maximum=maximum,
+            page_size=metadata.page_size,
+            sequence_length=metadata.sequence_length + 1,
+        )
+
+
 def score_pages(query: torch.Tensor, metadata: QuestMetadata) -> torch.Tensor:
     """Compute Quest upper-bound page scores with shape ``[B, Hkv, P]``.
 
@@ -314,6 +374,11 @@ class QuestIndex:
         """Build page min/max metadata from canonical keys ``[B, Hkv, S, D]``."""
         with torch.no_grad():
             self._metadata = build_page_metadata(keys, self.page_size)
+
+    def append(self, new_keys: torch.Tensor) -> None:
+        """Update page metadata for one appended causal key token."""
+        with torch.no_grad():
+            self._metadata = append_page_metadata(self.metadata, new_keys)
 
     def search(self, query: torch.Tensor, budget: int) -> Selection:
         """Return page-expanded token candidates for a requested token budget."""

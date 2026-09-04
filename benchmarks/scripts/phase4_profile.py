@@ -47,6 +47,7 @@ from kvweave.integrations.transformers import (
     DensePrefillSnapshot,
     GPTNeoXDecodeRunner,
     GPTNeoXDecodeStep,
+    QuestMetadataUpdateMode,
     attention_mass_captured,
     logit_comparison_metrics,
     per_head_relative_error,
@@ -271,6 +272,7 @@ def run_teacher_forced_trace(
                 pq_num_centroids=PQ_CENTROIDS,
                 pq_max_iterations=PQ_ITERATIONS,
                 seed=SEED,
+                quest_metadata_update_mode=QuestMetadataUpdateMode.FULL_REBUILD,
             )
     else:
         state = runner.initialize_state(
@@ -282,6 +284,7 @@ def run_teacher_forced_trace(
             pq_num_centroids=PQ_CENTROIDS,
             pq_max_iterations=PQ_ITERATIONS,
             seed=SEED,
+            quest_metadata_update_mode=QuestMetadataUpdateMode.FULL_REBUILD,
         )
 
     steps: list[GPTNeoXDecodeStep] = []
@@ -622,6 +625,7 @@ def _advance_to_representative_step(
         pq_num_centroids=PQ_CENTROIDS,
         pq_max_iterations=PQ_ITERATIONS,
         seed=SEED,
+        quest_metadata_update_mode=QuestMetadataUpdateMode.FULL_REBUILD,
     )
     for decode_step in range(1, APPROXIMATE_DECODE_STEPS):
         input_token = torch.tensor(
