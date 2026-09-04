@@ -24,7 +24,7 @@ graph:
 python -m venv /tmp/kvweave-wheel-check
 source /tmp/kvweave-wheel-check/bin/activate
 python -m pip install dist/kvweave-0.0.1-py3-none-any.whl
-python -c "import kvweave; print(kvweave.__version__)"
+python -c "from importlib.metadata import version; print(version('kvweave'))"
 ```
 
 The Pants environment pins validated dependency versions in
