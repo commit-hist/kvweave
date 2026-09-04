@@ -19,12 +19,16 @@ Our job is to build a focused layer between inference engines and KV storage/ret
 Phases 0–3 validated research provenance, shared retrieval/storage abstractions,
 synthetic correctness, real GPT-NeoX/Pythia activations, and stateful decode.
 Phase 4 completed profiling of the accepted reference path.
+Phase 5A validated exact incremental Quest metadata maintenance while retaining
+the full rebuild as an oracle. Further Quest optimization and Phase 5B PQ work
+have not started.
 
 The current public-release work presents KVWeave as an **Experimental Research
 Preview**. Correctness-first Quest-style page retrieval and PQ-style token
 retrieval are implemented, but optimized kernels and production runtime
-integrations are not. Optimization remains future Phase 5 work and must follow
-the reviewed Phase 4 evidence; it is not part of repository hardening.
+integrations are not. Further optimization must follow the reviewed Phase 4
+evidence and the Phase 5A correctness boundary; it is not part of repository
+hardening.
 
 Do not optimize for feature completeness or imply that reference CPU timings
 are performance claims.

@@ -64,6 +64,8 @@ Implemented:
 - synthetic retrieval and attention correctness benchmarks;
 - post-RoPE Q/K and unchanged-V validation on pinned Pythia-410M activations;
 - explicit stateful GPT-NeoX autoregressive decode after dense prefill;
+- exact append-time Quest metadata maintenance with the full rebuild retained as
+  an internal oracle;
 - dense and 100%-retrieval correctness controls; and
 - opt-in component, operator, allocation, and tensor-traffic profiling.
 
@@ -143,6 +145,10 @@ mise run lint
   100% retrieval; partial retrieval showed compounding error.
 - **Phase 4:** profiled the unchanged reference path and identified measured
   bottlenecks. It did not implement an optimization or establish a speedup.
+- **Phase 5A:** validated exact incremental Quest metadata maintenance as a
+  narrow optimization experiment. All oracle selections and decode outputs
+  remained bit-exact in the pinned matrix; broader Quest and PQ optimization
+  has not begun.
 
 See [DESIGN.md](DESIGN.md) for the architecture and phase plan,
 [docs/RESEARCH.md](docs/RESEARCH.md) for detailed evidence and provenance, and
@@ -163,13 +169,17 @@ commands and evidence boundaries.
   autoregressive decode steps.
 - Reference CPU timings are for diagnosis and reproducibility, not speed or
   throughput claims.
+- Append-time Quest metadata still uses ordinary eager PyTorch and copies its
+  small contiguous metadata tensors to preserve simple ownership semantics.
 
 ## Roadmap
 
 Near-term research directions, without dates or promised outcomes:
 
-- run narrow Phase 5 before/after experiments against the bottlenecks selected
-  by Phase 4 while preserving all correctness and quality controls;
+- evaluate any further narrow Quest experiment separately against the next
+  measured bottleneck while preserving all correctness and quality controls;
+- run the independently scoped Phase 5B PQ experiment only after its own
+  protocol is reviewed;
 - validate longer-context models and additional hardware configurations; and
 - evaluate additional hardware backends only when profiling supports them.
 

@@ -263,9 +263,29 @@ Phase 4 does not optimize either strategy or choose an implementation backend.
 Its timings are measurements of the readable reference path on the recorded
 machine/thread configuration, not speedup claims.
 
-## Future optimized benchmarks
+## Phase 5A: exact incremental Quest metadata
 
-No optimized benchmark result exists yet. A future Phase 5 before/after result
-must retain the same correctness and quality controls, record complete hardware
-and workload provenance, and compare against the frozen Phase 4 reference. Do
-not infer a prospective speedup from component timings alone.
+Run the fixed Phase 5A experiment with:
+
+```bash
+mise run bench:phase5a-quest-incremental
+```
+
+This Quest-only command retains the Phase 4 model, fixtures, prompt/decode
+lengths, p64 page size, 50%/100% budgets, teacher forcing, thread settings, and
+complete-replay warmup. It measures the full metadata rebuild oracle and exact
+incremental path in the same run, then performs lockstep bit-exact comparisons
+of metadata, search, selection, attention, residuals, and logits. It also runs
+the dense 100% control, 50% quality regression, update-component breakdown,
+allocation/traffic analysis, and a synthetic metadata scaling diagnostic.
+
+The gitignored output is
+`benchmarks/results/pythia-410m-phase5a-quest-incremental.json`; its profiler
+trace also remains uncommitted. The artifact records a substantial matched-run
+metadata reduction and improved retrieval/decode medians, but its full-build
+oracle was slower than the nominally identical historical Phase 4 run. Treat
+the result as a controlled experiment, not a production or cross-run speedup
+claim. PQ is not part of this command.
+
+Any later optimized benchmark must retain the same correctness and quality
+controls, record complete provenance, and preserve its own frozen oracle.

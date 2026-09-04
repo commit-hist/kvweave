@@ -11,8 +11,9 @@ The architecture is intentionally minimal and should evolve based on empirical r
 
 Phases 0–3 validated research provenance, synthetic Quest/PQ behavior, shared
 interfaces, real Pythia activations, and stateful multi-token decode. Phase 4
-completed profiling of that unchanged path and selected narrow future
-optimization experiments. No Phase 5 optimization has started. All current
+completed profiling of that unchanged path. Phase 5A then validated exact
+incremental Quest metadata maintenance as the first narrow optimization
+experiment; other Quest and PQ optimization remains future work. All current
 timing and approximation results remain correctness/diagnostic evidence, not
 production-runtime, speedup, or general model-quality claims.
 
@@ -464,6 +465,15 @@ where `P = ceil(S / page_size)`. Metadata must retain the original sequence
 length and page size so every page's valid token range, including a short final
 page, can be reconstructed without treating padding as data.
 
+Dense prefill constructs this representation with the unchanged full metadata
+build. During append-only Quest decode, the index updates only the affected
+final page: a partial page takes elementwise minima/maxima with the new key,
+while an append after a full page creates one metadata page. The implementation
+returns replacement tensors and a new frozen metadata value so earlier state is
+not mutated; the full build remains available as a decode-time oracle. This is
+Quest-specific state and does not extend `KVIndex` with a generic mutable-index
+protocol.
+
 ---
 
 # 11. Brute-Force Baseline
@@ -665,12 +675,13 @@ attention
 
 for performance.
 
-The standalone `QuestIndex` remains model-agnostic. The following are future
-integration or decode-runtime policies, not intrinsic index behavior:
+The standalone `QuestIndex` remains model-agnostic. The following are
+integration or decode-runtime policies, not intrinsic search behavior:
 
 * forced inclusion of the newest, possibly partial page;
 * dense attention in early transformer layers;
-* RoPE placement and incremental metadata-update details; and
+* RoPE placement and selection of the full-oracle versus incremental Quest
+  metadata-update path; and
 * GQA query-head aggregation or shared-selection policy.
 
 ---
@@ -735,8 +746,9 @@ under `integrations/transformers`; neither Hugging Face generation globally nor
 the model class is patched.
 
 Every layer retains canonical causal KV `[B, Hkv, S, D]`. After the new post-
-RoPE K and unchanged V are appended, Quest rebuilds its readable page metadata
-and PQ assigns the new key to the codebooks trained on dense-prefill keys.
+RoPE K and unchanged V are appended, the historical Phase 3B Quest path
+rebuilds its readable page metadata and PQ assigns the new key to the codebooks
+trained on dense-prefill keys.
 Those PQ codebooks remain frozen during decode. Both paths continue through the
 existing index, `Selection`, tensor storage, and retrieved-KV boundary. Stateful
 decode required no change to `KVIndex`, `Selection`, `KVStorage`, `RetrievedKV`,
@@ -1210,7 +1222,17 @@ target is metadata rebuild; the measured PQ target is stable full-score
 ranking. These are inputs to future experiments, not completed optimizations or
 speedup claims.
 
-## Phase 5 — Optimization (future; not started)
+## Phase 5A — Exact incremental Quest metadata (complete)
+
+The unchanged full build remains the oracle. Initial prefill uses that build;
+each decode append either updates the existing final page extrema or adds one
+new metadata page. The pinned Phase 4 Quest matrix produced bit-exact metadata,
+selection, attention, residual, and logit equivalence. Same-run metadata,
+retrieval, and total-decode medians improved, with absolute timing drift against
+the historical Phase 4 artifact explicitly retained as a limitation. No shared
+interface or root public API changed.
+
+## Phase 5 — Further optimization (future; not started)
 
 Potential:
 

@@ -4,12 +4,44 @@ import torch
 from kvweave.integrations.transformers import (
     DecodeStrategy,
     GPTNeoXDecodeRunner,
+    QuestMetadataUpdateMode,
 )
 
 
 MODEL_ID = "EleutherAI/pythia-410m"
 MODEL_REVISION = "9879c9b5f8bea9051dcb0e68dff21493d67e9d4f"
 TRANSFORMERS_VERSION = "5.15.1"
+
+
+def assert_decode_steps_bit_exact(actual: object, expected: object) -> None:
+    for name in ("input_token", "next_token_logits", "next_token"):
+        assert torch.equal(getattr(actual, name), getattr(expected, name))
+    for actual_layer, expected_layer in zip(
+        getattr(actual, "layers"),
+        getattr(expected, "layers"),
+        strict=True,
+    ):
+        for name in (
+            "query",
+            "attention_output",
+            "attention_weights",
+            "residual_output",
+            "selected_token_counts",
+        ):
+            assert torch.equal(
+                getattr(actual_layer, name),
+                getattr(expected_layer, name),
+            )
+        actual_selection = actual_layer.selection
+        expected_selection = expected_layer.selection
+        assert actual_selection is not None
+        assert expected_selection is not None
+        for name in ("indices", "scores", "valid_mask"):
+            actual_value = getattr(actual_selection, name)
+            expected_value = getattr(expected_selection, name)
+            assert (actual_value is None) == (expected_value is None)
+            if actual_value is not None and expected_value is not None:
+                assert torch.equal(actual_value, expected_value)
 
 
 def test_decode_validation_is_pinned_and_opt_in() -> None:
@@ -129,6 +161,25 @@ def test_full_budget_quest_and_pq_decode_match_dense() -> None:
             seed=0,
         ),
     ]
+    quest_oracle_pairs = [
+        (
+            runner.initialize_state(
+                snapshot,
+                strategy=DecodeStrategy.QUEST,
+                budget_fraction=budget_fraction,
+                quest_page_size=64,
+                quest_metadata_update_mode=(QuestMetadataUpdateMode.FULL_REBUILD),
+            ),
+            runner.initialize_state(
+                snapshot,
+                strategy=DecodeStrategy.QUEST,
+                budget_fraction=budget_fraction,
+                quest_page_size=64,
+                quest_metadata_update_mode=QuestMetadataUpdateMode.INCREMENTAL,
+            ),
+        )
+        for budget_fraction in (0.5, 1.0)
+    ]
     dense_token = snapshot.next_token_logits.argmax(dim=-1, keepdim=True)
     for _ in range(3):
         dense_step = runner.step(dense, dense_token)
@@ -164,5 +215,24 @@ def test_full_budget_quest_and_pq_decode_match_dense() -> None:
                     dense_layer.residual_output,
                     rtol=1e-4,
                     atol=1e-5,
+                )
+        for oracle_state, incremental_state in quest_oracle_pairs:
+            oracle_step = runner.step(oracle_state, dense_token)
+            incremental_step = runner.step(incremental_state, dense_token)
+            assert_decode_steps_bit_exact(incremental_step, oracle_step)
+            for oracle_layer_state, incremental_layer_state in zip(
+                oracle_state.layers,
+                incremental_state.layers,
+                strict=True,
+            ):
+                assert oracle_layer_state.cache is not None
+                assert incremental_layer_state.cache is not None
+                assert torch.equal(
+                    incremental_layer_state.cache.index.metadata.minimum,
+                    oracle_layer_state.cache.index.metadata.minimum,
+                )
+                assert torch.equal(
+                    incremental_layer_state.cache.index.metadata.maximum,
+                    oracle_layer_state.cache.index.metadata.maximum,
                 )
         dense_token = dense_step.next_token

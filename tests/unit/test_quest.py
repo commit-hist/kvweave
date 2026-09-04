@@ -1,14 +1,40 @@
+import math
+
 import pytest
 import torch
 
 from kvweave.indexes.quest import (
     QuestIndex,
     QuestMetadata,
+    append_page_metadata,
     build_page_metadata,
     expand_pages_to_tokens,
     score_pages,
     token_budget_to_pages,
 )
+from kvweave.profiling import ComponentProfiler
+
+
+def assert_metadata_exact(
+    actual: QuestMetadata,
+    expected: QuestMetadata,
+) -> None:
+    assert torch.equal(actual.minimum, expected.minimum)
+    assert torch.equal(actual.maximum, expected.maximum)
+    assert actual.sequence_length == expected.sequence_length
+    assert actual.num_pages == expected.num_pages
+    assert actual.page_size == expected.page_size
+    assert actual.minimum.shape == expected.minimum.shape
+    assert actual.maximum.shape == expected.maximum.shape
+
+
+def assert_optional_tensor_equal(
+    actual: torch.Tensor | None,
+    expected: torch.Tensor | None,
+) -> None:
+    assert (actual is None) == (expected is None)
+    if actual is not None and expected is not None:
+        assert torch.equal(actual, expected)
 
 
 def loop_page_metadata(
@@ -87,12 +113,200 @@ def test_page_count_and_valid_lengths(
         torch.randn(2, 3, sequence_length, 4),
         page_size,
     )
-
     assert metadata.num_pages == len(expected_lengths)
     torch.testing.assert_close(
         metadata.page_lengths.cpu(),
         torch.tensor(expected_lengths),
     )
+
+
+@pytest.mark.parametrize(
+    ("initial_length", "append_count", "page_size", "shape", "value_transform"),
+    [
+        (1, 1, 8, (1, 1, 2), "positive"),
+        (2, 1, 4, (1, 2, 3), "negative"),
+        (3, 1, 4, (2, 3, 5), "mixed"),
+        (4, 1, 4, (2, 2, 4), "mixed"),
+        (1, 12, 3, (2, 3, 5), "random"),
+        (4, 8, 1, (2, 2, 3), "random"),
+    ],
+)
+def test_incremental_metadata_exactly_matches_full_rebuild_after_every_append(
+    initial_length: int,
+    append_count: int,
+    page_size: int,
+    shape: tuple[int, int, int],
+    value_transform: str,
+) -> None:
+    batch_size, kv_heads, head_dim = shape
+    generator = torch.Generator().manual_seed(
+        4_019 + initial_length + append_count + page_size + sum(shape)
+    )
+    all_keys = torch.randn(
+        batch_size,
+        kv_heads,
+        initial_length + append_count,
+        head_dim,
+        generator=generator,
+        dtype=torch.float32,
+    )
+    if value_transform == "positive":
+        all_keys = all_keys.abs() + 0.25
+    elif value_transform == "negative":
+        all_keys = -(all_keys.abs() + 0.25)
+    elif value_transform == "mixed":
+        signs = torch.where(
+            torch.arange(head_dim) % 2 == 0,
+            1.0,
+            -1.0,
+        )
+        all_keys = (all_keys.abs() + 0.25) * signs
+
+    incremental = build_page_metadata(all_keys[:, :, :initial_length], page_size)
+    for sequence_length in range(initial_length + 1, all_keys.shape[2] + 1):
+        incremental = append_page_metadata(
+            incremental,
+            all_keys[:, :, sequence_length - 1 : sequence_length],
+        )
+        oracle = build_page_metadata(all_keys[:, :, :sequence_length], page_size)
+        assert_metadata_exact(incremental, oracle)
+
+
+@pytest.mark.parametrize("initial_length", [3, 4])
+def test_incremental_metadata_replacement_does_not_alias_previous_state(
+    initial_length: int,
+) -> None:
+    page_size = 4
+    keys = torch.arange(
+        2 * (initial_length + 1) * 3,
+        dtype=torch.float32,
+    ).reshape(1, 2, initial_length + 1, 3)
+    old_metadata = build_page_metadata(keys[:, :, :initial_length], page_size)
+    old_minimum = old_metadata.minimum.clone()
+    old_maximum = old_metadata.maximum.clone()
+
+    updated = append_page_metadata(
+        old_metadata,
+        keys[:, :, initial_length : initial_length + 1],
+    )
+
+    assert torch.equal(old_metadata.minimum, old_minimum)
+    assert torch.equal(old_metadata.maximum, old_maximum)
+    assert updated.minimum.data_ptr() != old_metadata.minimum.data_ptr()
+    assert updated.maximum.data_ptr() != old_metadata.maximum.data_ptr()
+    assert updated.minimum.data_ptr() != updated.maximum.data_ptr()
+
+
+def test_incremental_append_does_not_mutate_previous_search_result() -> None:
+    generator = torch.Generator().manual_seed(8_119)
+    keys = torch.randn(1, 2, 6, 3, generator=generator)
+    query = torch.randn(1, 2, 3, generator=generator)
+    index = QuestIndex(page_size=4)
+    index.build(keys[:, :, :5])
+    previous = index.search_with_details(query, budget=3)
+    previous_page_indices = previous.page_indices.clone()
+    previous_page_scores = previous.page_scores.clone()
+    previous_selection_indices = previous.selection.indices.clone()
+    previous_selection_scores = previous.selection.scores.clone()
+
+    index.append(keys[:, :, 5:6])
+
+    assert torch.equal(previous.page_indices, previous_page_indices)
+    assert torch.equal(previous.page_scores, previous_page_scores)
+    assert torch.equal(previous.selection.indices, previous_selection_indices)
+    assert torch.equal(previous.selection.scores, previous_selection_scores)
+
+
+def test_incremental_append_requires_exactly_one_matching_key_token() -> None:
+    metadata = build_page_metadata(torch.randn(2, 3, 4, 5), page_size=4)
+
+    with pytest.raises(ValueError, match="one causal append"):
+        append_page_metadata(metadata, torch.randn(2, 3, 2, 5))
+    with pytest.raises(ValueError, match="one causal append"):
+        append_page_metadata(metadata, torch.randn(1, 3, 1, 5))
+    with pytest.raises(ValueError, match="same dtype"):
+        append_page_metadata(metadata, torch.randn(2, 3, 1, 5).double())
+
+
+@pytest.mark.parametrize(
+    ("initial_length", "expected_update_component"),
+    [
+        (3, "quest.metadata.incremental.existing_page_minimum"),
+        (4, "quest.metadata.incremental.new_page_append"),
+    ],
+)
+def test_incremental_metadata_profiles_existing_and_new_page_paths_separately(
+    initial_length: int,
+    expected_update_component: str,
+) -> None:
+    keys = torch.randn(1, 2, initial_length + 1, 3)
+    metadata = build_page_metadata(keys[:, :, :initial_length], page_size=4)
+    profiler = ComponentProfiler()
+
+    with profiler.activate():
+        append_page_metadata(
+            metadata,
+            keys[:, :, initial_length : initial_length + 1],
+        )
+
+    components = {record.component for record in profiler.records}
+    assert "quest.metadata.incremental.identify_page" in components
+    assert "quest.metadata.incremental.state_bookkeeping" in components
+    assert expected_update_component in components
+    assert ("quest.metadata.incremental.new_page_append" in components) == (
+        initial_length == 4
+    )
+
+
+@pytest.mark.parametrize("page_size", [1, 3, 8])
+def test_incremental_search_exactly_matches_full_rebuild_across_budgets(
+    page_size: int,
+) -> None:
+    generator = torch.Generator().manual_seed(7_301 + page_size)
+    all_keys = torch.randn(2, 3, 17, 5, generator=generator)
+    all_keys[..., 0] = all_keys[..., 0].abs() + 0.1
+    all_keys[..., 1] = -(all_keys[..., 1].abs() + 0.1)
+    incremental = QuestIndex(page_size=page_size)
+    incremental.build(all_keys[:, :, :1])
+
+    for sequence_length in range(2, all_keys.shape[2] + 1):
+        incremental.append(all_keys[:, :, sequence_length - 1 : sequence_length])
+        oracle = QuestIndex(page_size=page_size)
+        oracle.build(all_keys[:, :, :sequence_length])
+        query = torch.randn(2, 3, 5, generator=generator)
+        for fraction in (0.125, 0.25, 0.5, 1.0):
+            budget = max(1, math.ceil(sequence_length * fraction))
+            incremental_result = incremental.search_with_details(query, budget)
+            oracle_result = oracle.search_with_details(query, budget)
+
+            assert torch.equal(
+                score_pages(query, incremental.metadata),
+                score_pages(query, oracle.metadata),
+            )
+            assert torch.equal(
+                incremental_result.page_indices,
+                oracle_result.page_indices,
+            )
+            assert torch.equal(
+                incremental_result.page_scores,
+                oracle_result.page_scores,
+            )
+            assert torch.equal(
+                incremental_result.selection.indices,
+                oracle_result.selection.indices,
+            )
+            assert_optional_tensor_equal(
+                incremental_result.selection.scores,
+                oracle_result.selection.scores,
+            )
+            assert_optional_tensor_equal(
+                incremental_result.selection.valid_mask,
+                oracle_result.selection.valid_mask,
+            )
+            assert torch.equal(
+                incremental_result.actual_token_counts,
+                oracle_result.actual_token_counts,
+            )
 
 
 @pytest.mark.parametrize("page_size", [0, -1])
