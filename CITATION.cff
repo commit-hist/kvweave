@@ -8,6 +8,8 @@ authors:
     given-names: "Keyur"
 version: "0.0.1"
 license: "Apache-2.0"
+repository-code: "https://github.com/commit-hist/kvweave"
+url: "https://github.com/commit-hist/kvweave"
 keywords:
   - "KV cache"
   - "transformer inference"

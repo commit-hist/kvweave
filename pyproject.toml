@@ -24,6 +24,11 @@ dependencies = [
     "torch>=2.2",
 ]
 
+[project.urls]
+Homepage = "https://github.com/commit-hist/kvweave"
+Repository = "https://github.com/commit-hist/kvweave"
+Issues = "https://github.com/commit-hist/kvweave/issues"
+
 [project.optional-dependencies]
 test = [
     "pytest>=8,<9",
