@@ -1,7 +1,8 @@
 from packaging.requirements import Requirement
 import pytest
+import inspect
 
-from scripts.check_wheel import _extra_requirement, _requirement_key
+from scripts.check_wheel import _check_equal, _extra_requirement, _requirement_key
 
 
 @pytest.mark.parametrize(
@@ -37,3 +38,20 @@ def test_requirement_keys_do_not_hide_different_markers_or_extras() -> None:
         'example; python_version >= "3.12"'
     )
     assert _requirement_key("example[foo]") != _requirement_key("example[bar]")
+
+
+def test_wheel_check_failures_identify_field_actual_and_expected() -> None:
+    with pytest.raises(
+        AssertionError, match="wheel Classifier: actual=.*wrong.*expected=.*right"
+    ):
+        _check_equal("Classifier", {"wrong"}, {"right"})
+
+
+def test_wheel_checks_survive_python_optimization() -> None:
+    namespace = {}
+    exec(
+        compile(inspect.getsource(_check_equal), "<wheel-check>", "exec", optimize=2),
+        namespace,
+    )
+    with pytest.raises(AssertionError, match="Requires-Dist"):
+        namespace["_check_equal"]("Requires-Dist", {"wrong"}, {"right"})

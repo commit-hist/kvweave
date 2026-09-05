@@ -69,12 +69,18 @@ the wheel check, install the built wheel and its dependencies into a separate
 virtual environment, then run from the repository root:
 
 ```bash
+/path/to/wheel-environment/bin/python -m pip install packaging==26.3
 /path/to/wheel-environment/bin/python -I scripts/check_wheel.py --project pyproject.toml
 ```
 
 The isolated interpreter prevents the source checkout or `PYTHONPATH` from
 masking a missing wheel module. Repository tests continue to use Pants and its
 locked dependency environment.
+
+The checker uses `packaging` for requirement/marker parsing and reports the
+field, actual value, and expected value on a mismatch, including under
+`python -O`. CI caches pip downloads for this check, but always creates a fresh
+environment and installs the newly built local wheel.
 
 ## Contribution principles
 

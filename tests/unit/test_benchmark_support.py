@@ -1,13 +1,17 @@
 import math
+from collections.abc import Callable
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
 
 from benchmarks import support
 from benchmarks import report_statistics
+from benchmarks.scripts import brute_force
+from kvweave.core.types import Selection
 from benchmarks.artifacts import atomic_output
 from benchmarks.report_statistics import (
     basic_distribution,
@@ -74,11 +78,53 @@ def test_git_and_machine_metadata_handle_missing_executables(
         raise FileNotFoundError("executable unavailable")
 
     monkeypatch.setattr(support.subprocess, "run", missing)
+    assert support.git_value("rev-parse", "HEAD") is None
     assert support.git_commit() == "unknown"
     assert support.git_is_dirty() is None
     metadata = support.machine_metadata(torch.device("cpu"))
     assert metadata["physical_memory_bytes"] is None
     assert metadata["cpu_brand"] is None
+
+
+@pytest.mark.parametrize(
+    ("returncode", "stdout", "expected"),
+    [(0, "\n", ""), (0, "abc123\n", "abc123"), (1, "ignored", None)],
+)
+def test_git_value_uses_none_only_for_failure(
+    monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str, expected: str | None
+) -> None:
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert command == ["git", "rev-parse", "HEAD"]
+        return subprocess.CompletedProcess(command, returncode, stdout, "")
+
+    monkeypatch.setattr(support.subprocess, "run", run)
+    assert support.git_value("rev-parse", "HEAD") == expected
+    assert support.git_commit() == ("unknown" if expected is None else expected)
+
+
+def test_brute_force_uses_shared_timing_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    args = SimpleNamespace(
+        seed=0, batch_size=1, kv_heads=2, head_dim=4, budget=3, warmups=2, repetitions=5
+    )
+    calls = []
+
+    def timer(
+        operation: Callable[[], Selection], **kwargs: object
+    ) -> tuple[float, Selection]:
+        calls.append(kwargs)
+        result = operation()
+        assert result.indices.shape == (1, 2, 3)
+        return 12.5, result
+
+    monkeypatch.setattr(brute_force, "median_latency_ms", timer)
+    latency, memory = brute_force.measure_context(
+        context_length=8, args=args, device=torch.device("cpu"), dtype=torch.float32
+    )
+    assert latency == 12.5
+    assert memory == 424
+    assert calls == [{"warmups": 2, "repetitions": 5, "device": torch.device("cpu")}]
 
 
 def test_synthetic_timer_preserves_warmup_and_synchronization_boundaries(

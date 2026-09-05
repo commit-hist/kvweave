@@ -2,12 +2,10 @@
 """Smoke benchmark for exact Top-K retrieval on synthetic KV tensors."""
 
 import argparse
-import statistics
-import time
 
 import torch
 
-from benchmarks.support import git_commit, hardware_name, synchronize
+from benchmarks.support import git_commit, hardware_name, median_latency_ms
 from kvweave import BruteForceIndex
 
 
@@ -82,17 +80,12 @@ def measure_context(
     index = BruteForceIndex()
     index.build(keys)
 
-    for _ in range(args.warmups):
-        index.search(query, args.budget)
-    synchronize(device)
-
-    latencies_ms: list[float] = []
-    for _ in range(args.repetitions):
-        synchronize(device)
-        start = time.perf_counter()
-        index.search(query, args.budget)
-        synchronize(device)
-        latencies_ms.append((time.perf_counter() - start) * 1_000)
+    latency_ms, _ = median_latency_ms(
+        lambda: index.search(query, args.budget),
+        warmups=args.warmups,
+        repetitions=args.repetitions,
+        device=device,
+    )
 
     score_count = args.batch_size * args.kv_heads * context_length
     selection_count = args.batch_size * args.kv_heads * args.budget
@@ -103,7 +96,7 @@ def measure_context(
         + selection_count * keys.element_size()
         + selection_count * torch.tensor([], dtype=torch.int64).element_size()
     )
-    return statistics.median(latencies_ms), estimated_tensor_bytes
+    return latency_ms, estimated_tensor_bytes
 
 
 def main() -> None:

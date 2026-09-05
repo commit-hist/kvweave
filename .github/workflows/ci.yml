@@ -56,6 +56,14 @@ jobs:
       - name: Build wheel and source distribution
         run: mise run package
 
+      - name: Cache installed-wheel dependency downloads
+        # Cache downloads only, never an installed environment or the local wheel.
+        # Version changes invalidate this cache through the lockfile and workflow.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-${{ runner.arch }}-wheel-pip-${{ hashFiles('mise.lock', '3rdparty/python/default.lock', '.github/workflows/ci.yml') }}
+
       - name: Check installed wheel metadata and retrieval
         run: |
           mise exec -- python -m venv "$RUNNER_TEMP/kvweave-wheel-check"

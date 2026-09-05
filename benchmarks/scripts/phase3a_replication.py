@@ -21,7 +21,7 @@ from benchmarks.report_statistics import (
 )
 from benchmarks.support import (
     git_is_dirty,
-    git_value,
+    git_commit,
     relative_error as tensor_relative_error,
 )
 from benchmarks.phase3a import (
@@ -1570,7 +1570,7 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
             "capture_and_reference_dtype": "float32",
             "device": str(device),
             "hardware": platform.platform(),
-            "git_commit": git_value("rev-parse", "HEAD"),
+            "git_commit": git_commit(),
             "git_dirty": git_is_dirty(),
             "seed": args.seed,
         },

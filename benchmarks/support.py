@@ -9,7 +9,12 @@ from typing import Any, TypeVar
 
 import torch
 
+from kvweave.metrics import relative_l2_error
+
 T = TypeVar("T")
+
+# Preserve benchmark imports while keeping arithmetic in the neutral library.
+relative_error = relative_l2_error
 
 
 def synchronize(device: torch.device) -> None:
@@ -49,16 +54,8 @@ def hardware_name(device: torch.device) -> str:
     return platform.processor() or platform.machine() or "unknown"
 
 
-def relative_error(approximate: torch.Tensor, exact: torch.Tensor) -> float:
-    numerator = torch.linalg.vector_norm(approximate - exact)
-    denominator = torch.linalg.vector_norm(exact)
-    if denominator.item() == 0:
-        return 0.0 if numerator.item() == 0 else float("inf")
-    return (numerator / denominator).item()
-
-
-def git_value(*arguments: str) -> str:
-    """Read Git metadata, retaining the historical unknown string sentinel."""
+def git_value(*arguments: str) -> str | None:
+    """Read Git metadata, distinguishing unavailable output from an empty string."""
     try:
         completed = subprocess.run(
             ["git", *arguments],
@@ -67,18 +64,20 @@ def git_value(*arguments: str) -> str:
             text=True,
         )
     except OSError:
-        return "unknown"
-    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
+        return None
+    return completed.stdout.strip() if completed.returncode == 0 else None
 
 
 def git_commit() -> str:
-    return git_value("rev-parse", "HEAD")
+    """Keep the historical report string for unavailable commit provenance."""
+    commit = git_value("rev-parse", "HEAD")
+    return "unknown" if commit is None else commit
 
 
 def git_is_dirty() -> bool | None:
     """Distinguish a dirty checkout from unavailable Git metadata."""
     status = git_value("status", "--porcelain")
-    return None if status == "unknown" else bool(status)
+    return None if status is None else bool(status)
 
 
 def _sysctl(name: str) -> str | None:
