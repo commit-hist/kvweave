@@ -17,6 +17,7 @@ from typing import Any
 import torch
 import torch.nn.functional as torch_functional
 
+from benchmarks.statistics import policy_distribution as distribution, percentile
 from benchmarks.phase3a import TEXT_FIXTURES, TextFixture, TokenizedFixture
 
 
@@ -835,41 +836,6 @@ def oracle_gap_recovery(
     if abs(denominator) <= epsilon:
         return None
     return (predicted_mass - fixed_mass) / denominator
-
-
-def percentile(values: Sequence[float], fraction: float) -> float:
-    if not values:
-        raise ValueError("percentile requires at least one value")
-    ordered = sorted(float(value) for value in values)
-    location = (len(ordered) - 1) * fraction
-    lower = math.floor(location)
-    upper = math.ceil(location)
-    if lower == upper:
-        return ordered[lower]
-    weight = location - lower
-    return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
-
-
-def distribution(values: Iterable[float | None]) -> dict[str, float | int]:
-    finite = [
-        float(value)
-        for value in values
-        if value is not None and math.isfinite(float(value))
-    ]
-    if not finite:
-        return {"count": 0}
-    return {
-        "count": len(finite),
-        "mean": statistics.fmean(finite),
-        "median": statistics.median(finite),
-        "min": min(finite),
-        "p10": percentile(finite, 0.10),
-        "p25": percentile(finite, 0.25),
-        "p75": percentile(finite, 0.75),
-        "p90": percentile(finite, 0.90),
-        "p95": percentile(finite, 0.95),
-        "max": max(finite),
-    }
 
 
 def bootstrap_fixture_mean_interval(

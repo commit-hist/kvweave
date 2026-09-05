@@ -3,17 +3,18 @@
 
 import argparse
 import math
-import platform
-import statistics
-import subprocess
-import time
-from collections.abc import Callable
-from typing import TypeVar
 
 import torch
 
+from benchmarks.support import (
+    git_commit,
+    git_is_dirty,
+    hardware_name,
+    median_latency_ms,
+    relative_error,
+)
 from kvweave import BruteForceIndex, QuestIndex, TensorStorage
-from kvweave.indexes.quest.reference import (
+from kvweave.metrics.reference import (
     candidate_recall,
     full_attention,
     selected_attention,
@@ -25,7 +26,6 @@ DTYPES = {
     "float32": torch.float32,
     "bfloat16": torch.bfloat16,
 }
-T = TypeVar("T")
 
 
 def parse_args() -> argparse.Namespace:
@@ -72,73 +72,6 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("page sizes must be positive")
     if any(fraction <= 0.0 or fraction > 1.0 for fraction in args.budget_fractions):
         raise ValueError("budget fractions must be in (0, 1]")
-
-
-def synchronize(device: torch.device) -> None:
-    if device.type == "cuda":
-        torch.cuda.synchronize(device)
-    elif device.type == "mps":
-        torch.mps.synchronize()
-
-
-def median_latency_ms(
-    operation: Callable[[], T],
-    *,
-    warmups: int,
-    repetitions: int,
-    device: torch.device,
-) -> tuple[float, T]:
-    result: T
-    for _ in range(warmups):
-        result = operation()
-    synchronize(device)
-
-    latencies_ms: list[float] = []
-    for _ in range(repetitions):
-        synchronize(device)
-        start = time.perf_counter()
-        result = operation()
-        synchronize(device)
-        latencies_ms.append((time.perf_counter() - start) * 1_000)
-    return statistics.median(latencies_ms), result
-
-
-def hardware_name(device: torch.device) -> str:
-    if device.type == "cuda":
-        return torch.cuda.get_device_name(device)
-    if device.type == "mps":
-        return f"{platform.machine()} Apple MPS"
-    return platform.processor() or platform.machine() or "unknown"
-
-
-def git_commit() -> str:
-    completed = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
-
-
-def git_is_dirty() -> bool | None:
-    completed = subprocess.run(
-        ["git", "status", "--porcelain"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode != 0:
-        return None
-    return bool(completed.stdout.strip())
-
-
-def relative_error(approximate: torch.Tensor, exact: torch.Tensor) -> float:
-    numerator = torch.linalg.vector_norm(approximate - exact)
-    denominator = torch.linalg.vector_norm(exact)
-    if denominator.item() == 0:
-        return 0.0 if numerator.item() == 0 else float("inf")
-    return (numerator / denominator).item()
 
 
 def make_tensors(

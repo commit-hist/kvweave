@@ -6,13 +6,13 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 import hashlib
-import json
 from pathlib import Path
 import statistics
-import subprocess
 import time
 from typing import Any
 
+from benchmarks.artifacts import load_json, write_new_json, require_schema_version
+from benchmarks.support import git_is_dirty, git_value
 from benchmarks.policy_feasibility import (
     CANDIDATE_CONFIGURATIONS,
     DEVELOPMENT_FIXTURES,
@@ -118,25 +118,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_json(path: Path) -> dict[str, Any]:
-    with path.open(encoding="utf-8") as input_file:
-        payload = json.load(input_file)
-    if not isinstance(payload, dict):
-        raise TypeError(f"expected JSON object in {path}")
-    return payload
-
-
-def write_new_json(path: Path, payload: Mapping[str, Any]) -> None:
-    if path.exists():
-        raise FileExistsError(
-            f"refusing to overwrite frozen/evaluation artifact: {path}"
-        )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as output_file:
-        json.dump(payload, output_file, indent=2, sort_keys=True, allow_nan=False)
-        output_file.write("\n")
-
-
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as input_file:
@@ -145,21 +126,12 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def git_value(*arguments: str) -> str:
-    completed = subprocess.run(
-        ["git", *arguments],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
-
-
 def _fixture_ids(fixtures: Sequence[Any]) -> set[str]:
     return {str(fixture.fixture_id) for fixture in fixtures}
 
 
 def validate_feature_artifact(payload: Mapping[str, Any], split: str) -> None:
+    require_schema_version(payload, supported=(1,))
     if payload.get("artifact") != "pythia_410m_phase3a_pre_retrieval_features":
         raise ValueError("unexpected feature artifact type")
     if payload.get("fixture_split") != split:
@@ -192,6 +164,7 @@ def validate_feature_artifact(payload: Mapping[str, Any], split: str) -> None:
 
 
 def validate_outcome_artifact(payload: Mapping[str, Any], split: str) -> None:
+    require_schema_version(payload, supported=(1, 2))
     if payload.get("benchmark") != "pythia_410m_phase3a_structural_replication":
         raise ValueError("unexpected outcome artifact type")
     provenance = payload["provenance"]
@@ -364,7 +337,7 @@ def freeze_development(args: argparse.Namespace) -> dict[str, Any]:
             "transformers_version": TRANSFORMERS_VERSION,
             "training_seed": TRAINING_SEED,
             "git_commit": git_value("rev-parse", "HEAD"),
-            "git_dirty": bool(git_value("status", "--porcelain")),
+            "git_dirty": git_is_dirty(),
             "development_outcome_artifact": str(args.development_outcomes),
             "development_outcome_sha256": sha256_file(args.development_outcomes),
             "development_feature_artifact": str(args.development_features),
@@ -1000,6 +973,7 @@ def _classify_evidence(
 
 def evaluate_held_out(args: argparse.Namespace) -> dict[str, Any]:
     frozen = load_json(args.frozen_model)
+    require_schema_version(frozen, supported=(1,))
     outcomes = load_json(args.held_out_outcomes)
     features = load_json(args.held_out_features)
     if frozen.get("artifact") != "pythia_410m_phase3a_policy_development_freeze":
@@ -1050,7 +1024,7 @@ def evaluate_held_out(args: argparse.Namespace) -> dict[str, Any]:
             "held_out_feature_artifact": str(args.held_out_features),
             "held_out_feature_sha256": sha256_file(args.held_out_features),
             "git_commit": git_value("rev-parse", "HEAD"),
-            "git_dirty": bool(git_value("status", "--porcelain")),
+            "git_dirty": git_is_dirty(),
         },
         "held_out_fixture_text_sha256": LOCKED_FIXTURE_TEXT_SHA256,
         "held_out_token_id_sha256": LOCKED_TOKEN_ID_SHA256,

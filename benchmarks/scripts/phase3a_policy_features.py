@@ -6,12 +6,13 @@ from dataclasses import asdict
 import json
 from pathlib import Path
 import platform
-import subprocess
 import time
 from typing import Any
 
 import torch
 
+from benchmarks.artifacts import write_new_json
+from benchmarks.support import git_is_dirty, git_value
 from benchmarks.phase3a import build_deterministic_fixture, calculate_query_positions
 from benchmarks.policy_feasibility import (
     FEATURE_DEFINITIONS,
@@ -64,16 +65,6 @@ def parse_args() -> argparse.Namespace:
         help="print held-out content/token hashes without collecting model features",
     )
     return parser.parse_args()
-
-
-def git_value(*arguments: str) -> str:
-    completed = subprocess.run(
-        ["git", *arguments],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
 def load_transformers() -> tuple[Any, Any, str]:
@@ -262,7 +253,7 @@ def collect_features(args: argparse.Namespace) -> dict[str, Any]:
             "device": str(device),
             "hardware": platform.platform(),
             "git_commit": git_value("rev-parse", "HEAD"),
-            "git_dirty": bool(git_value("status", "--porcelain")),
+            "git_dirty": git_is_dirty(),
             "seed": args.seed,
         },
         "architecture": asdict(architecture),
@@ -303,10 +294,7 @@ def main() -> None:
     if output.exists():
         raise FileExistsError(f"refusing to overwrite feature artifact: {output}")
     result = collect_features(args)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("w", encoding="utf-8") as output_file:
-        json.dump(result, output_file, indent=2, sort_keys=True, allow_nan=False)
-        output_file.write("\n")
+    write_new_json(output, result)
     print(f"feature_rows={result['feature_row_count']}")
     print(f"output={output}")
 

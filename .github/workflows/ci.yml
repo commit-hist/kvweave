@@ -56,22 +56,17 @@ jobs:
       - name: Build wheel and source distribution
         run: mise run package
 
-      - name: Smoke-test built wheel metadata
+      - name: Check installed wheel metadata and retrieval
         run: |
           mise exec -- python -m venv "$RUNNER_TEMP/kvweave-wheel-check"
+          # A CPU-only wheel avoids a second CUDA runtime installation.
+          "$RUNNER_TEMP/kvweave-wheel-check/bin/python" -m pip install \
+            --index-url https://download.pytorch.org/whl/cpu \
+            --constraint 3rdparty/python/constraints.txt torch
           "$RUNNER_TEMP/kvweave-wheel-check/bin/python" -m pip install \
             --no-deps dist/kvweave-*.whl
-          "$RUNNER_TEMP/kvweave-wheel-check/bin/python" - <<'PY'
-          import importlib.util
-          import tomllib
-          from importlib.metadata import version
-
-          with open("pyproject.toml", "rb") as project_file:
-              expected_version = tomllib.load(project_file)["project"]["version"]
-
-          assert version("kvweave") == expected_version
-          assert importlib.util.find_spec("kvweave") is not None
-          PY
+          "$RUNNER_TEMP/kvweave-wheel-check/bin/python" -I \
+            scripts/check_wheel.py --project pyproject.toml
 
       - name: Report final runner disk usage
         if: always()

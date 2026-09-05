@@ -15,6 +15,37 @@ and Pants launcher. The benchmark tasks below delegate execution to Pants, which
 builds each benchmark's isolated environment from the repository dependency
 lockfile.
 
+## Shared support and artifact contracts
+
+Entry points reuse `benchmarks/support.py` for Git/hardware metadata and
+synthetic timing, `benchmarks/decode.py` for pinned decode controls, and
+`benchmarks/statistics.py` for reporting calculations. Keep experiment
+matrices and algorithm decisions in their existing experiment modules.
+Generic recall and attention controls live in `kvweave.metrics.reference`;
+the old `kvweave.indexes.quest.reference` imports remain compatible.
+
+Report formats intentionally differ across research phases. Consolidation
+preserves their field names, sample filtering, dtype behavior, and correlation
+return contracts. Percentiles share linear interpolation and reject fractions
+outside `[0, 1]`. Unknown Git status is recorded as null rather than dirty.
+Offline synthetic report tests protect these contracts.
+
+Final JSON reports use `benchmarks/artifacts.py`: stream to a sibling temporary
+file, then publish atomically. Nonfinite metrics are rejected before publication;
+they are not silently rewritten or emitted as `NaN`/`Infinity`. A failed write
+leaves the previous report intact. Frozen policy/feature/held-out artifacts
+remain exclusive and cannot be overwritten, including by concurrent writers.
+Repeatable diagnostic runs retain their existing overwrite behavior.
+Tensor sidecars are also published atomically per file; publication is not a
+transaction spanning a report and its sidecars, whose recorded hashes should
+be checked when loading evidence.
+
+Artifact consumers check supported schema versions. Phase 5A also validates
+the historical Phase 4 model and experiment protocol before loading a model;
+hardware differences remain visible in its existing comparison report.
+These maintenance checks do not rerun or replace accepted research artifacts,
+and changes to report semantics require a separately reviewed schema change.
+
 ## Correctness and reference benchmarks
 
 Run the exact brute-force retrieval benchmark with:
