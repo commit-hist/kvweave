@@ -64,7 +64,7 @@ jobs:
             --index-url https://download.pytorch.org/whl/cpu \
             --constraint 3rdparty/python/constraints.txt torch
           "$RUNNER_TEMP/kvweave-wheel-check/bin/python" -m pip install \
-            --no-deps dist/kvweave-*.whl
+            --no-deps dist/kvweave-*.whl packaging==26.3
           "$RUNNER_TEMP/kvweave-wheel-check/bin/python" -I \
             scripts/check_wheel.py --project pyproject.toml
 

@@ -14,8 +14,8 @@ from typing import Any
 
 import torch
 
-from benchmarks.artifacts import write_json
-from benchmarks.statistics import (
+from benchmarks.artifacts import write_report
+from benchmarks.report_statistics import (
     basic_distribution as metric_distribution,
     legacy_pearson_correlation as pearson_correlation,
 )
@@ -962,7 +962,7 @@ def main() -> None:
     result = run_experiment(args)
     print_summary(result)
     if args.output is not None:
-        write_json(args.output, result, overwrite=True)
+        write_report(args.output, result, overwrite=True)
         print(f"output={args.output}")
 
 

@@ -14,7 +14,7 @@ from typing import Any
 
 import torch
 
-from benchmarks.artifacts import write_json
+from benchmarks.artifacts import write_report
 from benchmarks.support import git_commit, git_is_dirty, machine_metadata
 from benchmarks.phase3a import TEXT_FIXTURES, build_deterministic_fixture
 from benchmarks.phase4 import (
@@ -1294,7 +1294,7 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> None:
     args = parse_args()
     artifact = run_experiment(args)
-    write_json(args.output, artifact, overwrite=True, sort_keys=False)
+    write_report(args.output, artifact, overwrite=True, sort_keys=False)
     print(f"wrote {args.output}")
 
 

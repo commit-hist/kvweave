@@ -1,13 +1,15 @@
 import math
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import torch
 
 from benchmarks import support
+from benchmarks import report_statistics
 from benchmarks.artifacts import atomic_output
-from benchmarks.statistics import (
+from benchmarks.report_statistics import (
     basic_distribution,
     latency_distribution,
     legacy_pearson_correlation,
@@ -25,6 +27,24 @@ def test_atomic_tensor_sidecar_can_be_loaded(tmp_path: Path) -> None:
         torch.save(tensors, temporary)
     restored = torch.load(path, weights_only=True)
     assert torch.equal(restored["logits"], tensors["logits"])
+
+
+def test_benchmark_directory_does_not_shadow_stdlib_statistics() -> None:
+    benchmark_directory = Path(report_statistics.__file__).parent
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            "import sys; sys.path.insert(0, sys.argv[1]); import statistics; assert statistics.median([1, 3]) == 2",
+            str(benchmark_directory),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 @pytest.mark.parametrize(

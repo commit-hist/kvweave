@@ -17,7 +17,7 @@ from typing import Any
 import torch
 import torch.nn.functional as torch_functional
 
-from benchmarks.statistics import policy_distribution as distribution, percentile
+from benchmarks.report_statistics import policy_distribution as distribution, percentile
 from benchmarks.phase3a import TEXT_FIXTURES, TextFixture, TokenizedFixture
 
 

@@ -13,8 +13,12 @@ from typing import Any, Iterable
 
 import torch
 
-from benchmarks.artifacts import write_json
-from benchmarks.statistics import metric_distribution, pearson_correlation, percentile
+from benchmarks.artifacts import write_report
+from benchmarks.report_statistics import (
+    metric_distribution,
+    pearson_correlation,
+    percentile,
+)
 from benchmarks.support import (
     git_is_dirty,
     git_value,
@@ -1724,7 +1728,7 @@ def main() -> None:
         )
     result = run_experiment(args)
     print_summary(result)
-    write_json(args.output, result, overwrite=args.fixture_split != "held_out")
+    write_report(args.output, result, overwrite=args.fixture_split != "held_out")
     print(f"output={args.output}")
 
 

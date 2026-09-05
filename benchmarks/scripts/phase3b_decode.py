@@ -12,7 +12,12 @@ from typing import Any, Iterable
 
 import torch
 
-from benchmarks.artifacts import write_json, atomic_output
+from benchmarks.artifacts import (
+    atomic_output,
+    prepare_report,
+    write_content_addressed,
+    write_json,
+)
 from benchmarks.support import git_commit, git_is_dirty, hardware_name
 from benchmarks.decode import (
     DEFAULT_MODEL_ID,
@@ -101,6 +106,7 @@ def parse_args() -> argparse.Namespace:
         "--dense-tensors-output",
         type=Path,
         default=DEFAULT_DENSE_TENSORS_OUTPUT,
+        help="sidecar base name; actual filename includes its SHA-256 and is recorded in JSON",
     )
     return parser.parse_args()
 
@@ -753,22 +759,32 @@ def run_experiment(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, 
 def main() -> None:
     args = parse_args()
     artifact, dense_tensors = run_experiment(args)
-    with atomic_output(args.dense_tensors_output, overwrite=True) as temporary:
+    report = prepare_report(artifact)
+
+    def write_tensors(temporary: Path) -> None:
         # A stream avoids embedding the random temporary filename in the ZIP
         # archive, so identical tensor payloads keep reproducible serialization.
         with temporary.open("wb") as output_file:
             torch.save(dense_tensors, output_file)
-    artifact["dense_tensor_artifact"] = {
-        "path": str(args.dense_tensors_output),
-        "sha256": file_sha256(args.dense_tensors_output),
-        "contents": (
-            "per-case dense logits, per-decode-step/per-layer attention outputs, "
-            "residual streams, and cache lengths"
-        ),
-    }
-    write_json(args.output, artifact, overwrite=True, sort_keys=False)
+
+    # Open the report destination first to reject invalid/symlink paths before
+    # publishing a sidecar. Immutable sidecars keep old reports valid even if
+    # final report publication fails or a concurrent run wins the report race.
+    with atomic_output(args.output, overwrite=True) as temporary_report:
+        sidecar, digest = write_content_addressed(
+            args.dense_tensors_output, write_tensors
+        )
+        report["dense_tensor_artifact"] = {
+            "path": str(sidecar),
+            "sha256": digest,
+            "contents": (
+                "per-case dense logits, per-decode-step/per-layer attention outputs, "
+                "residual streams, and cache lengths"
+            ),
+        }
+        write_json(temporary_report, report, overwrite=True, sort_keys=False)
     print(f"wrote {args.output}")
-    print(f"wrote {args.dense_tensors_output}")
+    print(f"wrote {sidecar}")
 
 
 if __name__ == "__main__":

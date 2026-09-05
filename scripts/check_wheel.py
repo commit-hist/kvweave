@@ -3,24 +3,33 @@
 import argparse
 from importlib.metadata import metadata, requires
 from pathlib import Path
-import re
 import tomllib
 
+from packaging.markers import Marker
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
-def _requirement_key(value: str) -> tuple[str, tuple[str, ...], str]:
-    # The project's requirements use plain names, version clauses and extra
-    # markers. Normalize formatting and clause order emitted by build backends.
-    requirement, _, marker = value.partition(";")
-    requirement = re.sub(r"\s+", "", requirement).replace("(", "").replace(")", "")
-    match = re.fullmatch(r"([A-Za-z0-9_.-]+)(.*)", requirement)
-    if match is None:
-        raise ValueError(f"unsupported project requirement: {value}")
-    name, specifiers = match.groups()
+
+def _requirement_key(value: str) -> tuple[str, tuple[str, ...], str, str | None, str]:
+    requirement = Requirement(value)
     return (
-        re.sub(r"[-_.]+", "-", name).lower(),
-        tuple(sorted(specifiers.split(","))) if specifiers else (),
-        re.sub(r"\s+", "", marker).replace('"', "'"),
+        canonicalize_name(requirement.name),
+        tuple(sorted(canonicalize_name(extra) for extra in requirement.extras)),
+        str(requirement.specifier),
+        requirement.url,
+        str(requirement.marker) if requirement.marker else "",
     )
+
+
+def _extra_requirement(value: str, extra: str) -> str:
+    requirement = Requirement(value)
+    extra_marker = Marker(f"extra == {extra!r}")
+    requirement.marker = (
+        Marker(f"({requirement.marker}) and {extra_marker}")
+        if requirement.marker is not None
+        else extra_marker
+    )
+    return str(requirement)
 
 
 def check_metadata(project_path: Path) -> None:
@@ -53,7 +62,7 @@ def check_metadata(project_path: Path) -> None:
     expected_requirements = [
         *project["dependencies"],
         *(
-            f"{requirement}; extra == '{extra}'"
+            _extra_requirement(requirement, extra)
             for extra, requirements in project["optional-dependencies"].items()
             for requirement in requirements
         ),

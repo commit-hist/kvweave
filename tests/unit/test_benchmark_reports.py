@@ -4,12 +4,20 @@ from pathlib import Path
 from typing import Any
 from types import SimpleNamespace
 import hashlib
+import json
+import errno
+import os
 
 import pytest
 import torch
 
-from benchmarks.artifacts import load_json, write_new_json
+from benchmarks.artifacts import ArtifactPublicationError, load_json, write_new_json
 from benchmarks.scripts import phase3b_decode
+from benchmarks.scripts import (
+    phase4_profile,
+    phase5a_quest_incremental,
+    real_model_reference,
+)
 from benchmarks.decode import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
@@ -193,14 +201,115 @@ def test_decode_report_records_a_reproducible_loadable_tensor_sidecar(
         lambda args: ({"schema_version": 1}, tensors),
     )
     phase3b_decode.main()
-    original = args.dense_tensors_output.read_bytes()
     artifact = load_json(args.output)
+    sidecar = Path(artifact["dense_tensor_artifact"]["path"])
+    original = sidecar.read_bytes()
     assert (
         artifact["dense_tensor_artifact"]["sha256"]
         == hashlib.sha256(original).hexdigest()
     )
-    assert artifact["dense_tensor_artifact"]["path"] == str(args.dense_tensors_output)
-    restored = torch.load(args.dense_tensors_output, weights_only=True)
+    assert sidecar.name == f"dense.{hashlib.sha256(original).hexdigest()}.pt"
+    assert not args.dense_tensors_output.exists()
+    restored = torch.load(sidecar, weights_only=True)
     assert torch.equal(restored["logits"], tensors["logits"])
     phase3b_decode.main()
-    assert args.dense_tensors_output.read_bytes() == original
+    assert sidecar.read_bytes() == original
+    assert len(list(tmp_path.glob("*.pt"))) == 1
+
+
+@pytest.mark.parametrize("failure", ["nonfinite", "serialization", "publication"])
+def test_decode_rerun_keeps_previous_sidecar_valid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    args = SimpleNamespace(
+        output=tmp_path / "report.json", dense_tensors_output=tmp_path / "dense.pt"
+    )
+    monkeypatch.setattr(phase3b_decode, "parse_args", lambda: args)
+    monkeypatch.setattr(
+        phase3b_decode,
+        "run_experiment",
+        lambda args: ({"schema_version": 1}, {"logits": torch.zeros(2)}),
+    )
+    phase3b_decode.main()
+    previous_bytes = args.output.read_bytes()
+    previous = load_json(args.output)
+    previous_sidecar = Path(previous["dense_tensor_artifact"]["path"])
+    metric = object() if failure == "serialization" else float("inf")
+    monkeypatch.setattr(
+        phase3b_decode,
+        "run_experiment",
+        lambda args: (
+            {"schema_version": 1, "metric": metric},
+            {"logits": torch.ones(2)},
+        ),
+    )
+    if failure == "publication":
+        replace = os.replace
+
+        def fail_report(source: Path, destination: Path) -> None:
+            if destination == args.output:
+                raise OSError(errno.EIO, "report publication failed")
+            replace(source, destination)
+
+        monkeypatch.setattr(os, "replace", fail_report)
+    if failure == "nonfinite":
+        phase3b_decode.main()
+        current = json.loads(args.output.read_text())
+        assert current["metric"] is None
+        assert current["nonfinite_metrics"] == [
+            {"pointer": "/metric", "value": "Infinity"}
+        ]
+        assert current["dense_tensor_artifact"]["path"] != str(previous_sidecar)
+        current_sidecar = Path(current["dense_tensor_artifact"]["path"])
+        assert (
+            hashlib.sha256(current_sidecar.read_bytes()).hexdigest()
+            == current["dense_tensor_artifact"]["sha256"]
+        )
+    else:
+        with pytest.raises(
+            TypeError if failure == "serialization" else ArtifactPublicationError
+        ):
+            phase3b_decode.main()
+        assert args.output.read_bytes() == previous_bytes
+    assert (
+        hashlib.sha256(previous_sidecar.read_bytes()).hexdigest()
+        == previous["dense_tensor_artifact"]["sha256"]
+    )
+
+
+def test_decode_preserves_legacy_sidecar_on_rerun(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    args = SimpleNamespace(
+        output=tmp_path / "report.json", dense_tensors_output=tmp_path / "dense.pt"
+    )
+    args.dense_tensors_output.write_bytes(b"legacy sidecar")
+    monkeypatch.setattr(phase3b_decode, "parse_args", lambda: args)
+    monkeypatch.setattr(
+        phase3b_decode,
+        "run_experiment",
+        lambda args: ({"schema_version": 1}, {"logits": torch.zeros(2)}),
+    )
+    phase3b_decode.main()
+    assert args.dense_tensors_output.read_bytes() == b"legacy sidecar"
+
+
+@pytest.mark.parametrize(
+    "script", [real_model_reference, phase4_profile, phase5a_quest_incremental]
+)
+def test_experiment_entrypoints_publish_nonfinite_diagnostics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: Any
+) -> None:
+    args = SimpleNamespace(output=tmp_path / "report.json")
+    monkeypatch.setattr(script, "parse_args", lambda: args)
+    monkeypatch.setattr(
+        script,
+        "run_experiment",
+        lambda args: {"schema_version": 1, "metric": float("nan")},
+    )
+    if script is real_model_reference:
+        monkeypatch.setattr(script, "print_summary", lambda report: None)
+    script.main()
+    report = json.loads(args.output.read_text())
+    assert report["metric"] is None
+    assert report["nonfinite_metrics"] == [{"pointer": "/metric", "value": "NaN"}]

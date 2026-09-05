@@ -14,9 +14,9 @@ from typing import Any, Callable
 
 import torch
 
-from benchmarks.artifacts import write_json
+from benchmarks.artifacts import write_report
 from benchmarks.phase4 import load_phase4_baseline
-from benchmarks.statistics import latency_distribution as distribution
+from benchmarks.report_statistics import latency_distribution as distribution
 from benchmarks.support import git_commit, git_is_dirty, machine_metadata
 from benchmarks.phase3a import TEXT_FIXTURES, build_deterministic_fixture
 from benchmarks.decode import (
@@ -1346,7 +1346,7 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> None:
     args = parse_args()
     artifact = run_experiment(args)
-    write_json(args.output, artifact, overwrite=True, sort_keys=False)
+    write_report(args.output, artifact, overwrite=True, sort_keys=False)
     print(f"wrote {args.output}")
 
 
