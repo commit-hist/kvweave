@@ -30,6 +30,13 @@ return contracts. Percentiles share linear interpolation and reject fractions
 outside `[0, 1]`. Unknown Git status is recorded as null rather than dirty.
 Offline synthetic report tests protect these contracts.
 
+Scalar relative L2 error is implemented once in `kvweave.metrics.relative_l2_error`.
+Its default preserves input-dtype arithmetic; decode controls explicitly request
+float32, retaining their historical precision. Zero-reference conventions are
+unchanged (zero for a zero match, infinity otherwise). Per-head/vector metrics
+retain their separate reduction axes. Brute-force, Quest, and PQ synthetic
+entry points share the same warmup/synchronization/median timing helper.
+
 Final JSON reports use `benchmarks/artifacts.py`: stream to a sibling temporary
 file, then publish atomically. New files follow normal `0666 & ~umask`
 permissions; replacing a regular file preserves its permission bits (not its

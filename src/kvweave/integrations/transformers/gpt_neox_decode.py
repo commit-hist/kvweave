@@ -27,6 +27,7 @@ from kvweave.integrations.transformers.gpt_neox import (
     validate_gpt_neox_config,
 )
 from kvweave.profiling import profile_component, profile_context
+from kvweave.metrics import relative_l2_error
 
 
 class DecodeMode(str, Enum):
@@ -205,15 +206,7 @@ def relative_tensor_error(
     dense: torch.Tensor,
 ) -> float:
     """Return float32 L2 relative error with a defined zero-denominator case."""
-    if approximate.shape != dense.shape:
-        raise ValueError("compared tensors must have the same shape")
-    approximate_float = approximate.float()
-    dense_float = dense.float()
-    numerator = torch.linalg.vector_norm(approximate_float - dense_float)
-    denominator = torch.linalg.vector_norm(dense_float)
-    if denominator.item() == 0:
-        return 0.0 if numerator.item() == 0 else float("inf")
-    return float((numerator / denominator).item())
+    return relative_l2_error(approximate, dense, dtype=torch.float32)
 
 
 def logit_comparison_metrics(

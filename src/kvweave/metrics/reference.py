@@ -11,9 +11,11 @@ from kvweave.core.types import (
     validate_kv_tensors,
     validate_query,
 )
+from kvweave.metrics.errors import relative_l2_error
 
 
-def _selection_mask(selection: Selection) -> torch.Tensor:
+def selection_mask(selection: Selection) -> torch.Tensor:
+    """Return the explicit validity mask, or all-valid for an unpadded selection."""
     if selection.valid_mask is not None:
         return selection.valid_mask
     return torch.ones_like(selection.indices, dtype=torch.bool)
@@ -34,8 +36,8 @@ def candidate_recall(
     if candidates.indices.device != exact_topk.indices.device:
         raise ValueError("candidate and exact selections must share a device")
 
-    candidate_mask = _selection_mask(candidates)
-    exact_mask = _selection_mask(exact_topk)
+    candidate_mask = selection_mask(candidates)
+    exact_mask = selection_mask(exact_topk)
     sentinel = torch.iinfo(torch.int64).max
     sortable_candidates = torch.where(
         candidate_mask,
@@ -130,12 +132,7 @@ def compare_attention(
         retrieved.values,
         retrieved.valid_mask,
     )
-    denominator = torch.linalg.vector_norm(full_output)
-    numerator = torch.linalg.vector_norm(selected_output - full_output)
-    if denominator.item() == 0:
-        relative_error = 0.0 if numerator.item() == 0 else float("inf")
-    else:
-        relative_error = (numerator / denominator).item()
+    relative_error = relative_l2_error(selected_output, full_output)
 
     if retrieved.valid_mask is None:
         selected_tokens = (

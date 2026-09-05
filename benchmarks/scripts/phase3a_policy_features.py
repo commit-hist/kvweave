@@ -12,7 +12,7 @@ from typing import Any
 import torch
 
 from benchmarks.artifacts import write_new_json
-from benchmarks.support import git_is_dirty, git_value
+from benchmarks.support import git_commit, git_is_dirty
 from benchmarks.phase3a import build_deterministic_fixture, calculate_query_positions
 from benchmarks.policy_feasibility import (
     FEATURE_DEFINITIONS,
@@ -252,7 +252,7 @@ def collect_features(args: argparse.Namespace) -> dict[str, Any]:
             "capture_dtype": "float32",
             "device": str(device),
             "hardware": platform.platform(),
-            "git_commit": git_value("rev-parse", "HEAD"),
+            "git_commit": git_commit(),
             "git_dirty": git_is_dirty(),
             "seed": args.seed,
         },

@@ -12,7 +12,7 @@ import time
 from typing import Any
 
 from benchmarks.artifacts import load_json, write_new_json, require_schema_version
-from benchmarks.support import git_is_dirty, git_value
+from benchmarks.support import git_commit, git_is_dirty
 from benchmarks.policy_feasibility import (
     CANDIDATE_CONFIGURATIONS,
     DEVELOPMENT_FIXTURES,
@@ -336,7 +336,7 @@ def freeze_development(args: argparse.Namespace) -> dict[str, Any]:
             "model_revision": MODEL_REVISION,
             "transformers_version": TRANSFORMERS_VERSION,
             "training_seed": TRAINING_SEED,
-            "git_commit": git_value("rev-parse", "HEAD"),
+            "git_commit": git_commit(),
             "git_dirty": git_is_dirty(),
             "development_outcome_artifact": str(args.development_outcomes),
             "development_outcome_sha256": sha256_file(args.development_outcomes),
@@ -1023,7 +1023,7 @@ def evaluate_held_out(args: argparse.Namespace) -> dict[str, Any]:
             "held_out_outcome_sha256": sha256_file(args.held_out_outcomes),
             "held_out_feature_artifact": str(args.held_out_features),
             "held_out_feature_sha256": sha256_file(args.held_out_features),
-            "git_commit": git_value("rev-parse", "HEAD"),
+            "git_commit": git_commit(),
             "git_dirty": git_is_dirty(),
         },
         "held_out_fixture_text_sha256": LOCKED_FIXTURE_TEXT_SHA256,

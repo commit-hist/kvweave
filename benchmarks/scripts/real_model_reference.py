@@ -19,11 +19,12 @@ from benchmarks.report_statistics import (
     basic_distribution as metric_distribution,
     legacy_pearson_correlation as pearson_correlation,
 )
-from benchmarks.support import git_is_dirty, git_value
+from benchmarks.support import git_commit, git_is_dirty
 from kvweave import BruteForceIndex, PQIndex, QuestIndex, TensorStorage
 from kvweave.core.types import Selection
 from kvweave.indexes.pq import reconstruct_keys
 from kvweave.metrics.reference import candidate_recall
+from kvweave.metrics import relative_l2_error as tensor_relative_error
 from kvweave.integrations.transformers import (
     GPTNeoXLayerActivations,
     attention_mass_captured,
@@ -151,17 +152,6 @@ def deterministic_input_ids(tokenizer: Any, sequence_length: int) -> torch.Tenso
     repetitions = math.ceil(sequence_length / len(base_ids))
     token_ids = (base_ids * repetitions)[:sequence_length]
     return torch.tensor([token_ids], dtype=torch.int64)
-
-
-def tensor_relative_error(
-    approximate: torch.Tensor,
-    exact: torch.Tensor,
-) -> float:
-    numerator = torch.linalg.vector_norm(approximate - exact)
-    denominator = torch.linalg.vector_norm(exact)
-    if denominator.item() == 0:
-        return 0.0 if numerator.item() == 0 else float("inf")
-    return (numerator / denominator).item()
 
 
 def pq_reconstruction_error_by_head(
@@ -864,7 +854,7 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
             "capture_and_reference_dtype": "float32",
             "device": str(device),
             "hardware": platform.platform(),
-            "git_commit": git_value("rev-parse", "HEAD"),
+            "git_commit": git_commit(),
             "git_dirty": git_is_dirty(),
         },
         "architecture": asdict(captures[maximum_length].architecture),

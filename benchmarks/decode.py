@@ -10,6 +10,8 @@ from kvweave.integrations.transformers import (
     GPTNeoXDecodeRunner,
     GPTNeoXDecodeStep,
 )
+from kvweave.metrics import relative_l2_error
+from kvweave.metrics.reference import selection_mask
 
 
 DEFAULT_MODEL_ID = "EleutherAI/pythia-410m"
@@ -80,17 +82,13 @@ def validate_hugging_face_generation(
     maximum_relative_error = 0.0
     for custom, reference in zip(custom_logits, generated.scores, strict=True):
         torch.testing.assert_close(custom, reference, rtol=1e-4, atol=1e-5)
-        difference = torch.linalg.vector_norm(custom.float() - reference.float())
-        denominator = torch.linalg.vector_norm(reference.float())
         maximum_absolute_error = max(
             maximum_absolute_error,
             float((custom.float() - reference.float()).abs().max().item()),
         )
         maximum_relative_error = max(
             maximum_relative_error,
-            0.0
-            if denominator.item() == 0 and difference.item() == 0
-            else float((difference / denominator).item()),
+            relative_l2_error(custom, reference, dtype=torch.float32),
         )
     return {
         "passed": True,
@@ -131,12 +129,7 @@ def assert_full_budget_step(
             approximate_layer.sequence_length,
             device=approximate_layer.selection.indices.device,
         )
-        valid_mask = approximate_layer.selection.valid_mask
-        if valid_mask is None:
-            valid_mask = torch.ones_like(
-                approximate_layer.selection.indices,
-                dtype=torch.bool,
-            )
+        valid_mask = selection_mask(approximate_layer.selection)
         for head_index in range(valid_mask.shape[1]):
             actual = approximate_layer.selection.indices[0, head_index][
                 valid_mask[0, head_index]

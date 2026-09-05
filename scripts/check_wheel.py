@@ -32,6 +32,11 @@ def _extra_requirement(value: str, extra: str) -> str:
     return str(requirement)
 
 
+def _check_equal(label: str, actual: object, expected: object) -> None:
+    if actual != expected:
+        raise AssertionError(f"wheel {label}: actual={actual!r}; expected={expected!r}")
+
+
 def check_metadata(project_path: Path) -> None:
     project = tomllib.loads(project_path.read_text())["project"]
     installed = metadata("kvweave")
@@ -44,20 +49,31 @@ def check_metadata(project_path: Path) -> None:
         "Description-Content-Type": "text/markdown",
     }
     for field, expected in expected_fields.items():
-        if installed[field] != expected:
-            raise AssertionError(f"wheel {field}: {installed[field]!r} != {expected!r}")
-    assert (installed["License-Expression"] or installed["License"]) == project[
-        "license"
-    ]
-    assert set(installed.get_all("Classifier", [])) == set(project["classifiers"])
-    assert set(installed.get_all("Project-URL", [])) == {
-        f"{name}, {url}" for name, url in project["urls"].items()
-    }
-    assert set(installed.get_all("Provides-Extra", [])) == set(
-        project["optional-dependencies"]
+        _check_equal(field, installed[field], expected)
+    _check_equal(
+        "License",
+        installed["License-Expression"] or installed["License"],
+        project["license"],
     )
-    assert set((installed["Keywords"] or "").replace(",", " ").split()) == set(
-        project["keywords"]
+    _check_equal(
+        "Classifier",
+        set(installed.get_all("Classifier", [])),
+        set(project["classifiers"]),
+    )
+    _check_equal(
+        "Project-URL",
+        set(installed.get_all("Project-URL", [])),
+        {f"{name}, {url}" for name, url in project["urls"].items()},
+    )
+    _check_equal(
+        "Provides-Extra",
+        set(installed.get_all("Provides-Extra", [])),
+        set(project["optional-dependencies"]),
+    )
+    _check_equal(
+        "Keywords",
+        set((installed["Keywords"] or "").replace(",", " ").split()),
+        set(project["keywords"]),
     )
     expected_requirements = [
         *project["dependencies"],
@@ -67,9 +83,11 @@ def check_metadata(project_path: Path) -> None:
             for requirement in requirements
         ),
     ]
-    assert {_requirement_key(value) for value in requires("kvweave") or []} == {
-        _requirement_key(value) for value in expected_requirements
-    }
+    _check_equal(
+        "Requires-Dist",
+        {_requirement_key(value) for value in requires("kvweave") or []},
+        {_requirement_key(value) for value in expected_requirements},
+    )
 
 
 def check_retrieval() -> None:
@@ -90,7 +108,11 @@ def check_retrieval() -> None:
         cache = KVCache(index=index, storage=TensorStorage())
         cache.build(keys, values)
         partial = cache.retrieve(query, budget=8)
-        assert partial.keys.shape == (1, 2, 8, 4)
+        _check_equal(
+            f"{type(index).__name__} partial retrieval shape",
+            tuple(partial.keys.shape),
+            (1, 2, 8, 4),
+        )
         retrieved = cache.retrieve(query, budget=16)
         torch.testing.assert_close(
             selected_attention(
