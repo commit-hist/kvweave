@@ -4,17 +4,26 @@
 import argparse
 from collections import defaultdict
 from dataclasses import asdict
-import json
 import math
 from pathlib import Path
 import platform
 import statistics
-import subprocess
 import time
 from typing import Any, Iterable
 
 import torch
 
+from benchmarks.artifacts import write_report
+from benchmarks.report_statistics import (
+    metric_distribution,
+    pearson_correlation,
+    percentile,
+)
+from benchmarks.support import (
+    git_is_dirty,
+    git_value,
+    relative_error as tensor_relative_error,
+)
 from benchmarks.phase3a import (
     QueryPosition,
     TextFixture,
@@ -34,7 +43,7 @@ from benchmarks.policy_feasibility import (
 from kvweave import BruteForceIndex, PQIndex, QuestIndex, TensorStorage
 from kvweave.core.types import Selection
 from kvweave.indexes.pq import reconstruct_keys, score_pq_codes
-from kvweave.indexes.quest.reference import candidate_recall
+from kvweave.metrics.reference import candidate_recall
 from kvweave.integrations.transformers import (
     GPTNeoXLayerActivations,
     attention_mass_captured,
@@ -193,27 +202,6 @@ def validate_args(
         args.fixture_split,
         args.fixture_ids,
     ), parse_pq_configurations(args.pq_configs)
-
-
-def git_value(*arguments: str) -> str:
-    completed = subprocess.run(
-        ["git", *arguments],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
-
-
-def tensor_relative_error(
-    approximate: torch.Tensor,
-    exact: torch.Tensor,
-) -> float:
-    numerator = torch.linalg.vector_norm(approximate - exact)
-    denominator = torch.linalg.vector_norm(exact)
-    if denominator.item() == 0:
-        return 0.0 if numerator.item() == 0 else float("inf")
-    return (numerator / denominator).item()
 
 
 def pq_reconstruction_error_by_head(
@@ -480,36 +468,6 @@ def reconstruct_and_validate_attention(
     return results
 
 
-def percentile(values: list[float], fraction: float) -> float:
-    if not values:
-        raise ValueError("percentile requires at least one value")
-    ordered = sorted(values)
-    location = (len(ordered) - 1) * fraction
-    lower = math.floor(location)
-    upper = math.ceil(location)
-    if lower == upper:
-        return ordered[lower]
-    weight = location - lower
-    return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
-
-
-def metric_distribution(values: Iterable[float]) -> dict[str, float | int]:
-    finite = [float(value) for value in values if math.isfinite(float(value))]
-    if not finite:
-        return {"count": 0}
-    return {
-        "count": len(finite),
-        "mean": statistics.fmean(finite),
-        "median": statistics.median(finite),
-        "min": min(finite),
-        "p10": percentile(finite, 0.10),
-        "p25": percentile(finite, 0.25),
-        "p75": percentile(finite, 0.75),
-        "p90": percentile(finite, 0.90),
-        "max": max(finite),
-    }
-
-
 def aggregate_records(
     records: list[dict[str, Any]],
     *,
@@ -531,35 +489,6 @@ def aggregate_records(
             )
         aggregates.append(aggregate)
     return aggregates
-
-
-def pearson_correlation(
-    records: list[dict[str, Any]],
-    left: str,
-    right: str,
-) -> tuple[int, float | None]:
-    pairs = [
-        (float(record[left]), float(record[right]))
-        for record in records
-        if record.get(left) is not None
-        and record.get(right) is not None
-        and math.isfinite(float(record[left]))
-        and math.isfinite(float(record[right]))
-    ]
-    if len(pairs) < 2:
-        return len(pairs), None
-    left_values, right_values = zip(*pairs, strict=True)
-    left_mean = statistics.fmean(left_values)
-    right_mean = statistics.fmean(right_values)
-    numerator = sum(
-        (left_value - left_mean) * (right_value - right_mean)
-        for left_value, right_value in pairs
-    )
-    denominator = math.sqrt(
-        sum((value - left_mean) ** 2 for value in left_values)
-        * sum((value - right_mean) ** 2 for value in right_values)
-    )
-    return len(pairs), None if denominator == 0 else numerator / denominator
 
 
 def _correlation_scopes(
@@ -1642,7 +1571,7 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
             "device": str(device),
             "hardware": platform.platform(),
             "git_commit": git_value("rev-parse", "HEAD"),
-            "git_dirty": bool(git_value("status", "--porcelain")),
+            "git_dirty": git_is_dirty(),
             "seed": args.seed,
         },
         "architecture": asdict(architecture),
@@ -1799,12 +1728,7 @@ def main() -> None:
         )
     result = run_experiment(args)
     print_summary(result)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    # json.dump writes incrementally instead of materializing a second copy of
-    # the large record matrix as one in-memory string.
-    with args.output.open("w", encoding="utf-8") as output_file:
-        json.dump(result, output_file, indent=2, sort_keys=True, allow_nan=False)
-        output_file.write("\n")
+    write_report(args.output, result, overwrite=args.fixture_split != "held_out")
     print(f"output={args.output}")
 
 

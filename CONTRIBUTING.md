@@ -41,7 +41,10 @@ materialization strategy instead.
 
 ## Running tests and experiments
 
-The default suite is offline and excludes tests marked `model_download`:
+The default suite is offline and excludes tests marked `model_download`.
+It includes a tiny, randomly initialized GPT-NeoX model that checks the full
+decode loop without downloading weights or a tokenizer. The `test` extra
+therefore includes the already pinned Transformers dependency:
 
 ```bash
 mise run test
@@ -58,6 +61,20 @@ mise exec -- pants test tests/integration/test_pythia_decode.py -- -m model_down
 Benchmarks are manual research workflows, not ordinary pull-request tests. See
 [benchmarks/README.md](benchmarks/README.md) for exact commands and evidence
 boundaries. Do not commit generated files under `benchmarks/results/`.
+
+CI also checks the installed wheel's public retrieval path and compares its
+metadata with `pyproject.toml`, including dependencies and extras. Keep the
+Pants `BUILD` distribution metadata synchronized with that table. To repeat
+the wheel check, install the built wheel and its dependencies into a separate
+virtual environment, then run from the repository root:
+
+```bash
+/path/to/wheel-environment/bin/python -I scripts/check_wheel.py --project pyproject.toml
+```
+
+The isolated interpreter prevents the source checkout or `PYTHONPATH` from
+masking a missing wheel module. Repository tests continue to use Pants and its
+locked dependency environment.
 
 ## Contribution principles
 

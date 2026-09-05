@@ -2,13 +2,12 @@
 """Smoke benchmark for exact Top-K retrieval on synthetic KV tensors."""
 
 import argparse
-import platform
 import statistics
-import subprocess
 import time
 
 import torch
 
+from benchmarks.support import git_commit, hardware_name, synchronize
 from kvweave import BruteForceIndex
 
 
@@ -34,31 +33,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--dtype", choices=sorted(DTYPES), default="float32")
     return parser.parse_args()
-
-
-def synchronize(device: torch.device) -> None:
-    if device.type == "cuda":
-        torch.cuda.synchronize(device)
-    elif device.type == "mps":
-        torch.mps.synchronize()
-
-
-def hardware_name(device: torch.device) -> str:
-    if device.type == "cuda":
-        return torch.cuda.get_device_name(device)
-    if device.type == "mps":
-        return f"{platform.machine()} Apple MPS"
-    return platform.processor() or platform.machine() or "unknown"
-
-
-def git_commit() -> str:
-    completed = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
 def validate_args(args: argparse.Namespace) -> None:

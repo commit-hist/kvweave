@@ -45,7 +45,7 @@ python_distribution(
         },
         extras_require={
             "model-experiment": ["transformers==5.15.1"],
-            "test": ["pytest>=8,<9"],
+            "test": ["pytest>=8,<9", "transformers==5.15.1"],
         },
     ),
 )

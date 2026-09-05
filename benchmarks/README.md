@@ -15,6 +15,61 @@ and Pants launcher. The benchmark tasks below delegate execution to Pants, which
 builds each benchmark's isolated environment from the repository dependency
 lockfile.
 
+## Shared support and artifact contracts
+
+Entry points reuse `benchmarks/support.py` for Git/hardware metadata and
+synthetic timing, `benchmarks/decode.py` for pinned decode controls, and
+`benchmarks/report_statistics.py` for reporting calculations. Keep experiment
+matrices and algorithm decisions in their existing experiment modules.
+Generic recall and attention controls live in `kvweave.metrics.reference`;
+the old `kvweave.indexes.quest.reference` imports remain compatible.
+
+Report formats intentionally differ across research phases. Consolidation
+preserves their field names, sample filtering, dtype behavior, and correlation
+return contracts. Percentiles share linear interpolation and reject fractions
+outside `[0, 1]`. Unknown Git status is recorded as null rather than dirty.
+Offline synthetic report tests protect these contracts.
+
+Final JSON reports use `benchmarks/artifacts.py`: stream to a sibling temporary
+file, then publish atomically. New files follow normal `0666 & ~umask`
+permissions; replacing a regular file preserves its permission bits (not its
+ownership, ACLs, or other extended metadata). Symlink destinations are rejected,
+including dangling links. This is not a security boundary against hostile
+concurrent filesystem mutation or a power-loss durability guarantee.
+
+Finite report fields and serialization stay unchanged. Exceptional experiment
+reports represent each nonfinite metric as `null` and add a reserved top-level
+`nonfinite_metrics` list, with its JSON-pointer `pointer` and original `value`
+(`NaN`, `Infinity`, or `-Infinity`). This additive diagnostic format distinguishes
+nonfinite values from genuinely missing observations without dropping samples
+or changing calculations. `load_json` rejects these annotated reports as
+downstream evidence; inspect them as diagnostic JSON and resolve the underlying
+metric issue before using a run as a baseline. Frozen feature/model writers
+remain strictly finite and reject unsupported data before publication.
+
+A failed write leaves the previous report intact. Frozen policy/feature/held-out
+artifacts remain exclusive, including against concurrent writers. Exclusive
+publication requires filesystem hard-link support; there is no empty-file
+reservation fallback. Publication I/O failures retain the completed temporary
+file and include its recovery path in the exception. Recover it to a supported
+destination rather than rerunning the experiment blindly. Partial serialization
+files and losing concurrent frozen writes are cleaned up.
+
+Phase 3B validates report serialization before publishing tensors. Its
+`--dense-tensors-output` is now a base name: the actual immutable sidecar is
+`stem.<sha256>.pt`, with the exact path and digest recorded in JSON. Identical
+payloads reuse the same sidecar; legacy base-name sidecars are left untouched.
+The report is published last, so a failure or concurrent run cannot invalidate
+the tensors referenced by the previous report. A failed report publication may
+leave an unreferenced complete sidecar; there is no automatic garbage collection.
+Always follow the JSON's recorded path and verify its hash when loading evidence.
+
+Artifact consumers check supported schema versions. Phase 5A also validates
+the historical Phase 4 model and experiment protocol before loading a model;
+hardware differences remain visible in its existing comparison report.
+These maintenance checks do not rerun or replace accepted research artifacts,
+and changes to metric semantics require a separately reviewed schema change.
+
 ## Correctness and reference benchmarks
 
 Run the exact brute-force retrieval benchmark with:

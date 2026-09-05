@@ -9,6 +9,7 @@
 //     "CPython==3.11.*"
 //   ],
 //   "generated_with_requirements": [
+//     "packaging==26.3",
 //     "pytest<9,>=8",
 //     "torch>=2.2",
 //     "transformers==5.15.1"
@@ -2197,6 +2198,7 @@
   "pip_version": "24.2",
   "prefer_older_binary": false,
   "requirements": [
+    "packaging==26.3",
     "pytest<9,>=8",
     "torch>=2.2",
     "transformers==5.15.1"

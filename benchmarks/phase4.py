@@ -8,11 +8,101 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 import math
 import statistics
+from pathlib import Path
 from typing import Any
 
 import torch
 
+from benchmarks.artifacts import load_json, require_schema_version
+from benchmarks.decode import (
+    DEFAULT_MODEL_ID,
+    DEFAULT_MODEL_REVISION,
+    DEFAULT_TRANSFORMERS_VERSION,
+)
+
 from kvweave.profiling import ComponentTiming, estimate_tensor_bytes, percentile
+
+
+def load_phase4_baseline(path: Path) -> dict[str, Any]:
+    """Read a completed, compatible historical baseline before a Phase 5A run.
+
+    Hardware and timing differences remain reportable evidence; model, dtype,
+    fixture, budget, and decode-protocol mismatches invalidate this comparison.
+    """
+    artifact = load_json(path)
+    require_schema_version(artifact, supported=(1,))
+    if (
+        artifact.get("phase") != "Phase 4 profiling"
+        or artifact.get("status") != "complete"
+    ):
+        raise ValueError("expected a completed Phase 4 profiling artifact")
+    expected_provenance = {
+        "model_id": DEFAULT_MODEL_ID,
+        "model_revision": DEFAULT_MODEL_REVISION,
+        "transformers_version": DEFAULT_TRANSFORMERS_VERSION,
+        "transformers_attention_implementation": "eager",
+        "dtype": "float32",
+        "device": "cpu",
+    }
+    expected_protocol = {
+        "prompt_length": 1024,
+        "fixture_ids": ["technical_exposition", "code_like"],
+        "generation_mode": "teacher_forced_only",
+        "generated_token_positions": 32,
+        "approximate_decode_steps": 31,
+        "budget_fractions": [0.5, 1.0],
+        "quest_configuration": "p64",
+        "seed": 0,
+    }
+    for section, expected in (
+        ("provenance", expected_provenance),
+        ("protocol", expected_protocol),
+    ):
+        recorded = artifact.get(section)
+        if not isinstance(recorded, dict):
+            raise ValueError(f"Phase 4 artifact lacks {section}")
+        for name, value in expected.items():
+            if recorded.get(name) != value:
+                raise ValueError(
+                    f"Phase 4 {section}.{name} does not match the frozen protocol"
+                )
+
+    def quest_rows(
+        section: str, name: str, components: tuple[str, ...] = ()
+    ) -> list[dict[str, Any]]:
+        group = artifact.get(section)
+        rows = group.get(name) if isinstance(group, dict) else None
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise ValueError(f"Phase 4 artifact lacks {section}.{name} records")
+        selected = [
+            row
+            for row in rows
+            if row.get("strategy") == "quest"
+            and (not components or row.get("component") in components)
+        ]
+        if not selected:
+            raise ValueError(f"Phase 4 artifact lacks Quest {name} records")
+        if components and {row.get("component") for row in selected} != set(components):
+            raise ValueError(f"Phase 4 artifact has incomplete Quest {name} components")
+        return selected
+
+    return {
+        "artifact_path": str(path),
+        "provenance": artifact["provenance"],
+        "quest_retrieval_summary": quest_rows(
+            "steady_state",
+            "retrieval_overhead_summary",
+            ("metadata_rebuild", "total_retrieval_overhead"),
+        ),
+        "quest_decode_summary": quest_rows(
+            "steady_state",
+            "step_component_summary",
+            ("total_decode_step",),
+        ),
+        "quest_partial_quality_summary": quest_rows(
+            "correctness", "partial_quality_summary"
+        ),
+    }
 
 
 MODEL_COMPONENT_GROUPS: dict[str, tuple[str, ...]] = {
