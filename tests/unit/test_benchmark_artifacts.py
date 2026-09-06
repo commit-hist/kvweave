@@ -3,6 +3,9 @@ import errno
 import os
 from pathlib import Path
 import stat
+import subprocess
+import sys
+from textwrap import dedent
 
 import pytest
 
@@ -114,6 +117,49 @@ def test_overwrite_preserves_existing_permission_bits(
     assert stat.S_IMODE(path.stat().st_mode) == mode
 
 
+def test_replacement_staging_is_private_with_a_permissive_umask(tmp_path: Path) -> None:
+    # Isolate the umask so this regression does not alter process-global state
+    # for other tests. Nested publication exercises the Phase 3B report path.
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            dedent("""
+                import os
+                from pathlib import Path
+                import stat
+                import sys
+
+                sys.path.insert(0, sys.argv[1])
+                from benchmarks.artifacts import atomic_output, write_json
+
+                os.umask(0o022)
+                path = Path(sys.argv[2]) / "private.json"
+                path.write_text("{}")
+                path.chmod(0o600)
+                with atomic_output(path, overwrite=True) as temporary:
+                    assert stat.S_IMODE(temporary.stat().st_mode) == 0o600
+                    with atomic_output(temporary, overwrite=True) as nested:
+                        nested.write_text('{"private": true}')
+                        assert stat.S_IMODE(nested.stat().st_mode) == 0o600
+                    assert stat.S_IMODE(temporary.stat().st_mode) == 0o600
+                    write_json(temporary, {"private": True}, overwrite=True)
+                    assert stat.S_IMODE(temporary.stat().st_mode) == 0o600
+                assert stat.S_IMODE(path.stat().st_mode) == 0o600
+                assert path.read_text() == '{\\n  "private": true\\n}\\n'
+            """),
+            str(Path(artifacts.__file__).resolve().parent.parent),
+            str(tmp_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 @pytest.mark.parametrize("overwrite", [False, True])
 @pytest.mark.parametrize("dangling", [False, True])
 def test_symlink_destinations_are_rejected(
@@ -151,6 +197,7 @@ def test_publication_failure_retains_completed_artifact(
     path = tmp_path / "report.json"
     if overwrite:
         path.write_text('{"old": true}')
+        path.chmod(0o600)
 
     def unsupported(*args: object) -> None:
         raise OSError(errno.EOPNOTSUPP, "publication unavailable")
@@ -163,6 +210,7 @@ def test_publication_failure_retains_completed_artifact(
     assert artifacts.load_json(caught.value.temporary) == {"completed": True}
     assert str(caught.value.temporary) in str(caught.value)
     if overwrite:
+        assert stat.S_IMODE(caught.value.temporary.stat().st_mode) == 0o600
         assert artifacts.load_json(path) == {"old": True}
     else:
         assert not path.exists()

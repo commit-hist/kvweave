@@ -38,14 +38,16 @@ def _destination_mode(path: Path, *, overwrite: bool) -> int | None:
 
 
 @contextmanager
-def _temporary_output(path: Path) -> Iterator[Path]:
+def _temporary_output(path: Path, *, private: bool = False) -> Iterator[Path]:
     path.parent.mkdir(parents=True, exist_ok=True)
     # Let the kernel apply the umask, without reading/changing process-global
     # state. Exclusive creation prevents following an existing temporary link.
+    # Stage replacements privately until _publish applies the destination mode.
+    mode = 0o600 if private else 0o666
     while True:
         temporary = path.with_name(f".{path.name}.{secrets.token_hex(16)}.tmp")
         try:
-            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
             break
         except FileExistsError:
             continue
@@ -83,13 +85,14 @@ def _publish(temporary: Path, path: Path, *, overwrite: bool) -> None:
 def atomic_output(path: Path, *, overwrite: bool) -> Iterator[Path]:
     """Publish complete files, preserving permission bits on replacement.
 
-    New files use 0666 filtered by the umask. Symlink destinations are rejected.
+    Replacements are staged with owner-only access before final permissions are
+    applied. New files use 0666 filtered by the umask. Symlinks are rejected.
     Exclusive publication requires hard links; publication I/O failures retain
     the completed temporary file and report its recovery path. Atomicity is per
     file, not a transaction or a power-loss durability guarantee.
     """
-    _destination_mode(path, overwrite=overwrite)
-    with _temporary_output(path) as temporary:
+    mode = _destination_mode(path, overwrite=overwrite)
+    with _temporary_output(path, private=mode is not None) as temporary:
         yield temporary
         _publish(temporary, path, overwrite=overwrite)
 

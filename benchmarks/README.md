@@ -40,7 +40,9 @@ entry points share the same warmup/synchronization/median timing helper.
 Final JSON reports use `benchmarks/artifacts.py`: stream to a sibling temporary
 file, then publish atomically. New files follow normal `0666 & ~umask`
 permissions; replacing a regular file preserves its permission bits (not its
-ownership, ACLs, or other extended metadata). Symlink destinations are rejected,
+ownership, ACLs, or other extended metadata). Replacement contents are staged
+with owner-only access until final permission bits are applied for publication,
+including during nested report writes. Symlink destinations are rejected,
 including dangling links. This is not a security boundary against hostile
 concurrent filesystem mutation or a power-loss durability guarantee.
 
