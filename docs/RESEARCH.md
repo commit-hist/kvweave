@@ -35,7 +35,7 @@ repository.
 | --- | --- | --- | --- | --- |
 | KVWeave | Project source | Apache-2.0 | yes | Canonical license text in [`LICENSE`](../LICENSE) and project notice in [`NOTICE`](../NOTICE). |
 | PyTorch (`torch>=2.2`) | Required tensor/runtime dependency | BSD-3-Clause | no | Required by `pyproject.toml`; upstream [license](https://github.com/pytorch/pytorch/blob/main/LICENSE). |
-| Transformers (`5.15.1`) | Optional pinned model-experiment dependency | Apache-2.0 | no | Optional extra only; exact source revision and model boundary are recorded in the Phase 3A section below; upstream [license](https://github.com/huggingface/transformers/blob/v5.15.1/LICENSE). |
+| Transformers (`5.15.1`) | Optional pinned model-experiment and test dependency | Apache-2.0 | no | Optional extras only; the test extra uses random tiny model weights offline. Exact source revision and model boundary are recorded in the Phase 3A section below; upstream [license](https://github.com/huggingface/transformers/blob/v5.15.1/LICENSE). |
 | EleutherAI Pythia-410M | Opt-in experiment model | Apache-2.0 as declared by the pinned model card | no | Downloaded only for opt-in tests/benchmarks; exact model revision is recorded below. |
 | pytest (`>=8,<9`) | Optional/default offline test dependency | MIT | no | `test` extra; upstream [license](https://github.com/pytest-dev/pytest/blob/main/LICENSE). |
 | setuptools (`>=77`) | PEP 517 build backend | MIT | no | Build-system dependency; upstream [license](https://github.com/pypa/setuptools/blob/main/LICENSE). |

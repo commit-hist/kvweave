@@ -9,6 +9,14 @@ retains future ideas where they help explain the original design direction.
 
 The architecture is intentionally minimal and should evolve based on empirical results.
 
+Repository maintenance keeps benchmark support outside the runtime contracts:
+shared environment/timing, decode controls, report statistics, and artifact
+publication live under `benchmarks/`. Strategy-independent synthetic recall
+and attention controls live under `src/kvweave/metrics/`, with compatibility
+imports at their historical Quest location. The default offline suite exercises
+the full decoder using a tiny randomly initialized model; pinned Pythia tests
+remain opt-in research controls.
+
 Phases 0–3 validated research provenance, synthetic Quest/PQ behavior, shared
 interfaces, real Pythia activations, and stateful multi-token decode. Phase 4
 completed profiling of that unchanged path. Phase 5A then validated exact

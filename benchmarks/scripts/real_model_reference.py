@@ -9,17 +9,22 @@ import json
 import math
 from pathlib import Path
 import platform
-import statistics
-import subprocess
 import time
 from typing import Any
 
 import torch
 
+from benchmarks.artifacts import write_report
+from benchmarks.report_statistics import (
+    basic_distribution as metric_distribution,
+    legacy_pearson_correlation as pearson_correlation,
+)
+from benchmarks.support import git_commit, git_is_dirty
 from kvweave import BruteForceIndex, PQIndex, QuestIndex, TensorStorage
 from kvweave.core.types import Selection
 from kvweave.indexes.pq import reconstruct_keys
-from kvweave.indexes.quest.reference import candidate_recall
+from kvweave.metrics.reference import candidate_recall
+from kvweave.metrics import relative_l2_error as tensor_relative_error
 from kvweave.integrations.transformers import (
     GPTNeoXLayerActivations,
     attention_mass_captured,
@@ -136,16 +141,6 @@ def validate_args(args: argparse.Namespace) -> list[tuple[int, int]]:
     return parse_pq_configurations(args.pq_configs)
 
 
-def git_value(*arguments: str) -> str:
-    completed = subprocess.run(
-        ["git", *arguments],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
-
-
 def deterministic_input_ids(tokenizer: Any, sequence_length: int) -> torch.Tensor:
     """Repeat one locally authored tokenized text to an exact token length."""
     base_ids = tokenizer(
@@ -157,17 +152,6 @@ def deterministic_input_ids(tokenizer: Any, sequence_length: int) -> torch.Tenso
     repetitions = math.ceil(sequence_length / len(base_ids))
     token_ids = (base_ids * repetitions)[:sequence_length]
     return torch.tensor([token_ids], dtype=torch.int64)
-
-
-def tensor_relative_error(
-    approximate: torch.Tensor,
-    exact: torch.Tensor,
-) -> float:
-    numerator = torch.linalg.vector_norm(approximate - exact)
-    denominator = torch.linalg.vector_norm(exact)
-    if denominator.item() == 0:
-        return 0.0 if numerator.item() == 0 else float("inf")
-    return (numerator / denominator).item()
 
 
 def pq_reconstruction_error_by_head(
@@ -298,15 +282,6 @@ def record_selection(
         )
 
 
-def metric_distribution(values: list[float]) -> dict[str, float]:
-    return {
-        "mean": statistics.fmean(values),
-        "median": statistics.median(values),
-        "min": min(values),
-        "max": max(values),
-    }
-
-
 def aggregate_records(
     records: list[dict[str, Any]],
     *,
@@ -343,33 +318,6 @@ def aggregate_records(
             )
         aggregates.append(aggregate)
     return aggregates
-
-
-def pearson_correlation(
-    records: list[dict[str, Any]],
-    left: str,
-    right: str,
-) -> float | None:
-    pairs = [
-        (float(record[left]), float(record[right]))
-        for record in records
-        if record[left] is not None and record[right] is not None
-    ]
-    if len(pairs) < 2:
-        return None
-    left_values, right_values = zip(*pairs, strict=True)
-    left_mean = statistics.fmean(left_values)
-    right_mean = statistics.fmean(right_values)
-    numerator = sum(
-        (left_value - left_mean) * (right_value - right_mean)
-        for left_value, right_value in pairs
-    )
-    left_sum_squares = sum((left_value - left_mean) ** 2 for left_value in left_values)
-    right_sum_squares = sum(
-        (right_value - right_mean) ** 2 for right_value in right_values
-    )
-    denominator = math.sqrt(left_sum_squares * right_sum_squares)
-    return None if denominator == 0 else numerator / denominator
 
 
 def calculate_correlations(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -906,8 +854,8 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
             "capture_and_reference_dtype": "float32",
             "device": str(device),
             "hardware": platform.platform(),
-            "git_commit": git_value("rev-parse", "HEAD"),
-            "git_dirty": bool(git_value("status", "--porcelain")),
+            "git_commit": git_commit(),
+            "git_dirty": git_is_dirty(),
         },
         "architecture": asdict(captures[maximum_length].architecture),
         "input": {
@@ -1004,11 +952,7 @@ def main() -> None:
     result = run_experiment(args)
     print_summary(result)
     if args.output is not None:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(
-            json.dumps(result, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        write_report(args.output, result, overwrite=True)
         print(f"output={args.output}")
 
 

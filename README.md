@@ -119,6 +119,11 @@ retrieved = cache.retrieve(query, budget=8)
 print(retrieved.keys.shape)  # torch.Size([1, 2, 8, 4])
 ```
 
+`TensorStorage` borrows the supplied tensors. Keep indexed keys unchanged until
+rebuilding the cache or using the integration's coordinated append operation;
+in-place key edits otherwise leave Quest/PQ metadata stale. Values are also
+borrowed, so their in-place edits are visible to later retrievals.
+
 The root package explicitly exports `KVCache`, `Selection`, `RetrievedKV`,
 `BruteForceIndex`, `QuestIndex`, `PQIndex`, and `TensorStorage`. This surface is
 intentional but unstable. GPT-NeoX integration and profiling helpers remain

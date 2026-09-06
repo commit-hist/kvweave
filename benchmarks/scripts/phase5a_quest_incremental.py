@@ -4,7 +4,6 @@
 import argparse
 import cProfile
 from dataclasses import asdict
-import json
 import math
 from pathlib import Path
 import pstats
@@ -15,19 +14,20 @@ from typing import Any, Callable
 
 import torch
 
+from benchmarks.artifacts import write_report
+from benchmarks.phase4 import load_phase4_baseline
+from benchmarks.report_statistics import latency_distribution as distribution
+from benchmarks.support import git_commit, git_is_dirty, machine_metadata
 from benchmarks.phase3a import TEXT_FIXTURES, build_deterministic_fixture
-from benchmarks.scripts.phase3b_decode import (
+from benchmarks.decode import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
     DEFAULT_TRANSFORMERS_REVISION,
     DEFAULT_TRANSFORMERS_VERSION,
     assert_full_budget_step,
     build_dense_trace,
-    git_commit,
-    git_is_dirty,
     validate_hugging_face_generation,
 )
-from benchmarks.scripts.phase4_profile import machine_metadata
 from kvweave import QuestIndex
 from kvweave.indexes.quest import (
     QuestMetadata,
@@ -52,7 +52,6 @@ from kvweave.profiling import (
     ComponentProfiler,
     ComponentTiming,
     estimate_tensor_bytes,
-    percentile,
     profile_context,
 )
 
@@ -131,20 +130,6 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_PROFILE_DIRECTORY,
     )
     return parser.parse_args()
-
-
-def distribution(values: list[float]) -> dict[str, float | int]:
-    if not values:
-        raise ValueError("distribution requires observations")
-    return {
-        "count": len(values),
-        "mean": statistics.fmean(values),
-        "median": statistics.median(values),
-        "p90": percentile(values, 0.90),
-        "p95": percentile(values, 0.95),
-        "minimum": min(values),
-        "maximum": max(values),
-    }
 
 
 def _assert_optional_tensor_equal(
@@ -1035,32 +1020,6 @@ def operator_profile(
     }
 
 
-def phase4_baseline(path: Path) -> dict[str, Any]:
-    artifact = json.loads(path.read_text())
-    quest_retrieval = [
-        row
-        for row in artifact["steady_state"]["retrieval_overhead_summary"]
-        if row["strategy"] == "quest"
-        and row["component"] in ("metadata_rebuild", "total_retrieval_overhead")
-    ]
-    quest_decode = [
-        row
-        for row in artifact["steady_state"]["step_component_summary"]
-        if row["strategy"] == "quest" and row["component"] == "total_decode_step"
-    ]
-    return {
-        "artifact_path": str(path),
-        "provenance": artifact["provenance"],
-        "quest_retrieval_summary": quest_retrieval,
-        "quest_decode_summary": quest_decode,
-        "quest_partial_quality_summary": [
-            row
-            for row in artifact["correctness"]["partial_quality_summary"]
-            if row["strategy"] == "quest"
-        ],
-    }
-
-
 def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer, __version__
@@ -1072,8 +1031,7 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
         raise RuntimeError(
             f"expected transformers {DEFAULT_TRANSFORMERS_VERSION}, found {__version__}"
         )
-    if not args.phase4_artifact.exists():
-        raise FileNotFoundError("the frozen Phase 4 artifact is required")
+    phase4 = load_phase4_baseline(args.phase4_artifact)
 
     torch.manual_seed(SEED)
     device = torch.device("cpu")
@@ -1228,7 +1186,6 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
     if representative_snapshot is None or representative_tokens is None:
         raise AssertionError("representative Phase 5A fixture was not captured")
     step_records = build_step_records(recorder.records, measured)
-    phase4 = phase4_baseline(args.phase4_artifact)
     current_environment = {
         "model_id": DEFAULT_MODEL_ID,
         "model_revision": resolved_revision,
@@ -1389,8 +1346,7 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> None:
     args = parse_args()
     artifact = run_experiment(args)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(artifact, indent=2) + "\n")
+    write_report(args.output, artifact, overwrite=True, sort_keys=False)
     print(f"wrote {args.output}")
 
 

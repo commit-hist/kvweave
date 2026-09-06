@@ -5,18 +5,17 @@ import argparse
 import cProfile
 from dataclasses import asdict
 import hashlib
-import json
 from pathlib import Path
-import platform
 import pstats
 import statistics
-import subprocess
 import sys
 import time
 from typing import Any
 
 import torch
 
+from benchmarks.artifacts import write_report
+from benchmarks.support import git_commit, git_is_dirty, machine_metadata
 from benchmarks.phase3a import TEXT_FIXTURES, build_deterministic_fixture
 from benchmarks.phase4 import (
     allocation_estimates,
@@ -30,16 +29,13 @@ from benchmarks.phase4 import (
     summarize_step_components,
     tensor_traffic_estimates,
 )
-from benchmarks.scripts.phase3b_decode import (
+from benchmarks.decode import (
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_REVISION,
     DEFAULT_TRANSFORMERS_REVISION,
     DEFAULT_TRANSFORMERS_VERSION,
     assert_full_budget_step,
     build_dense_trace,
-    git_commit,
-    git_is_dirty,
-    hardware_name,
     validate_hugging_face_generation,
 )
 from kvweave.integrations.transformers import (
@@ -89,35 +85,6 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_PROFILE_DIRECTORY,
     )
     return parser.parse_args()
-
-
-def _sysctl(name: str) -> str | None:
-    completed = subprocess.run(
-        ["sysctl", "-n", name],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode != 0:
-        return None
-    value = completed.stdout.strip()
-    return value or None
-
-
-def machine_metadata(device: torch.device) -> dict[str, Any]:
-    memory = _sysctl("hw.memsize")
-    return {
-        "hardware": hardware_name(device),
-        "cpu_brand": _sysctl("machdep.cpu.brand_string"),
-        "physical_memory_bytes": None if memory is None else int(memory),
-        "platform": platform.platform(),
-        "machine": platform.machine(),
-        "processor": platform.processor(),
-        "python_version": platform.python_version(),
-        "python_implementation": platform.python_implementation(),
-        "torch_num_threads": torch.get_num_threads(),
-        "torch_num_interop_threads": torch.get_num_interop_threads(),
-    }
 
 
 def _layer_total_time_ms(step: GPTNeoXDecodeStep, layer_index: int) -> float:
@@ -1327,8 +1294,7 @@ def run_experiment(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> None:
     args = parse_args()
     artifact = run_experiment(args)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(artifact, indent=2) + "\n")
+    write_report(args.output, artifact, overwrite=True, sort_keys=False)
     print(f"wrote {args.output}")
 
 

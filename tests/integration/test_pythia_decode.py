@@ -1,16 +1,19 @@
 import pytest
 import torch
 
+from benchmarks.decode import (
+    DEFAULT_MODEL_ID as MODEL_ID,
+    DEFAULT_MODEL_REVISION as MODEL_REVISION,
+    DEFAULT_TRANSFORMERS_VERSION as TRANSFORMERS_VERSION,
+    assert_full_budget_step,
+    build_dense_trace,
+    validate_hugging_face_generation,
+)
 from kvweave.integrations.transformers import (
     DecodeStrategy,
     GPTNeoXDecodeRunner,
     QuestMetadataUpdateMode,
 )
-
-
-MODEL_ID = "EleutherAI/pythia-410m"
-MODEL_REVISION = "9879c9b5f8bea9051dcb0e68dff21493d67e9d4f"
-TRANSFORMERS_VERSION = "5.15.1"
 
 
 def assert_decode_steps_bit_exact(actual: object, expected: object) -> None:
@@ -87,38 +90,17 @@ def test_custom_dense_decode_matches_hugging_face_greedy_generation() -> None:
     for sequence_length in (16, 64):
         input_ids = repeated_prompt(tokenizer, sequence_length)
         snapshot = runner.dense_prefill(input_ids)
-        state = runner.initialize_state(snapshot, strategy=DecodeStrategy.DENSE)
-        custom_tokens = [int(snapshot.next_token_logits.argmax(dim=-1).item())]
-        custom_logits = [snapshot.next_token_logits]
-        for _ in range(3):
-            step = runner.step(
-                state,
-                torch.tensor([[custom_tokens[-1]]], dtype=torch.int64),
-            )
-            custom_tokens.append(int(step.next_token.item()))
-            custom_logits.append(step.next_token_logits)
-
-        generated = model.generate(
-            input_ids,
-            attention_mask=torch.ones_like(input_ids),
-            max_new_tokens=4,
-            do_sample=False,
-            return_dict_in_generate=True,
-            output_scores=True,
+        custom_tokens, custom_logits, _ = build_dense_trace(
+            runner, snapshot, generated_tokens=4
         )
-        assert generated.sequences[0, -4:].tolist() == custom_tokens
-        assert len(generated.scores) == len(custom_logits)
-        for custom, hugging_face in zip(
-            custom_logits,
-            generated.scores,
-            strict=True,
-        ):
-            torch.testing.assert_close(
-                custom,
-                hugging_face,
-                rtol=1e-4,
-                atol=1e-5,
-            )
+        validation = validate_hugging_face_generation(
+            model,
+            input_ids,
+            generated_tokens=4,
+            custom_tokens=custom_tokens,
+            custom_logits=custom_logits,
+        )
+        assert validation["passed"]
 
 
 @pytest.mark.model_download
@@ -185,37 +167,12 @@ def test_full_budget_quest_and_pq_decode_match_dense() -> None:
         dense_step = runner.step(dense, dense_token)
         for state in approximate_states:
             approximate_step = runner.step(state, dense_token)
-            torch.testing.assert_close(
-                approximate_step.next_token_logits,
-                dense_step.next_token_logits,
-                rtol=1e-4,
-                atol=1e-5,
-            )
-            assert int(approximate_step.next_token.item()) == int(
-                dense_step.next_token.item()
-            )
-            for approximate_layer, dense_layer in zip(
-                approximate_step.layers,
-                dense_step.layers,
-                strict=True,
-            ):
-                assert approximate_layer.newest_token_included
+            assert_full_budget_step(approximate_step, dense_step, rtol=1e-4, atol=1e-5)
+            for approximate_layer in approximate_step.layers:
                 assert torch.all(
                     approximate_layer.selected_token_counts
                     == approximate_layer.sequence_length
                 ).item()
-                torch.testing.assert_close(
-                    approximate_layer.attention_output,
-                    dense_layer.attention_output,
-                    rtol=1e-4,
-                    atol=1e-5,
-                )
-                torch.testing.assert_close(
-                    approximate_layer.residual_output,
-                    dense_layer.residual_output,
-                    rtol=1e-4,
-                    atol=1e-5,
-                )
         for oracle_state, incremental_state in quest_oracle_pairs:
             oracle_step = runner.step(oracle_state, dense_token)
             incremental_step = runner.step(incremental_state, dense_token)

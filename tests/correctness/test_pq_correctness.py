@@ -2,7 +2,7 @@ import torch
 
 from kvweave import BruteForceIndex, KVCache, PQIndex, TensorStorage
 from kvweave.indexes.pq import build_pq_metadata, reconstruct_keys
-from kvweave.indexes.quest.reference import candidate_recall, compare_attention
+from kvweave.metrics.reference import candidate_recall, compare_attention
 
 
 def reconstruction_relative_error(

@@ -2,13 +2,10 @@
 """Smoke benchmark for exact Top-K retrieval on synthetic KV tensors."""
 
 import argparse
-import platform
-import statistics
-import subprocess
-import time
 
 import torch
 
+from benchmarks.support import git_commit, hardware_name, median_latency_ms
 from kvweave import BruteForceIndex
 
 
@@ -34,31 +31,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--dtype", choices=sorted(DTYPES), default="float32")
     return parser.parse_args()
-
-
-def synchronize(device: torch.device) -> None:
-    if device.type == "cuda":
-        torch.cuda.synchronize(device)
-    elif device.type == "mps":
-        torch.mps.synchronize()
-
-
-def hardware_name(device: torch.device) -> str:
-    if device.type == "cuda":
-        return torch.cuda.get_device_name(device)
-    if device.type == "mps":
-        return f"{platform.machine()} Apple MPS"
-    return platform.processor() or platform.machine() or "unknown"
-
-
-def git_commit() -> str:
-    completed = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
 def validate_args(args: argparse.Namespace) -> None:
@@ -108,17 +80,12 @@ def measure_context(
     index = BruteForceIndex()
     index.build(keys)
 
-    for _ in range(args.warmups):
-        index.search(query, args.budget)
-    synchronize(device)
-
-    latencies_ms: list[float] = []
-    for _ in range(args.repetitions):
-        synchronize(device)
-        start = time.perf_counter()
-        index.search(query, args.budget)
-        synchronize(device)
-        latencies_ms.append((time.perf_counter() - start) * 1_000)
+    latency_ms, _ = median_latency_ms(
+        lambda: index.search(query, args.budget),
+        warmups=args.warmups,
+        repetitions=args.repetitions,
+        device=device,
+    )
 
     score_count = args.batch_size * args.kv_heads * context_length
     selection_count = args.batch_size * args.kv_heads * args.budget
@@ -129,7 +96,7 @@ def measure_context(
         + selection_count * keys.element_size()
         + selection_count * torch.tensor([], dtype=torch.int64).element_size()
     )
-    return statistics.median(latencies_ms), estimated_tensor_bytes
+    return latency_ms, estimated_tensor_bytes
 
 
 def main() -> None:

@@ -14,7 +14,14 @@ class KVCache:
         self.storage = storage
 
     def build(self, keys: torch.Tensor, values: torch.Tensor) -> None:
-        """Build the index and store canonical KV tensors."""
+        """Build the index and store canonical KV tensors.
+
+        The reference storage borrows its inputs. Callers must not mutate keys
+        in place while this cache is indexed: derived Quest/PQ metadata would
+        no longer describe the stored keys. Rebuild after changing keys, or use
+        the integration's coordinated append operation. Values are borrowed
+        too; their in-place changes are visible to subsequent fetches.
+        """
         validate_kv_tensors(keys, values)
         self.index.build(keys)
         self.storage.put(keys, values)
