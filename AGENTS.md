@@ -20,8 +20,10 @@ Phases 0–3 validated research provenance, shared retrieval/storage abstraction
 synthetic correctness, real GPT-NeoX/Pythia activations, and stateful decode.
 Phase 4 completed profiling of the accepted reference path.
 Phase 5A validated exact incremental Quest metadata maintenance while retaining
-the full rebuild as an oracle. Further Quest optimization and Phase 5B PQ work
-have not started.
+the full rebuild as an oracle. Phase 5B established exact deterministic PQ
+partial-selection equivalence, but its integrated 50% ranking/retrieval
+performance gate failed. Full stable ranking remains the default, with partial
+selection retained as an internal experiment. Further optimization has not started.
 
 The current public-release work presents KVWeave as an **Experimental Research
 Preview**. Correctness-first Quest-style page retrieval and PQ-style token
