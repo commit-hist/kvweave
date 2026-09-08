@@ -79,3 +79,7 @@ run = "pants run benchmarks/scripts:phase4_profile --"
 [tasks."bench:phase5a-quest-incremental"]
 description = "Validate and profile exact incremental Quest metadata maintenance"
 run = "pants run benchmarks/scripts:phase5a_quest_incremental --"
+
+[tasks."bench:phase5b-pq-partial-selection"]
+description = "Validate and profile deterministic PQ partial candidate selection"
+run = "pants run benchmarks/scripts:phase5b_pq_partial_selection --"
