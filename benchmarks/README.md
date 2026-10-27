@@ -353,3 +353,77 @@ claim. PQ is not part of this command.
 
 Any later optimized benchmark must retain the same correctness and quality
 controls, record complete provenance, and preserve its own frozen oracle.
+
+## Phase 5B: deterministic PQ partial selection
+
+Run the fixed ranking-only experiment with:
+
+```bash
+mise run bench:phase5b-pq-partial-selection
+```
+
+The experiment requires the existing Phase 3B and Phase 4 result artifacts,
+passed through `--phase3b-artifact` and `--phase4-artifact` when stored elsewhere.
+It checks their model pin, completion status, and matching matrix cells. It
+uses the same pinned Pythia-410M, CPU float32 eager execution, 1,024-token
+`technical_exposition` / `code_like` fixtures, 32 teacher-forced positions
+(31 retrieval steps), frozen M4/C8 codebooks, eight training iterations, seed
+zero, and 50% / 100% budgets.
+
+Before primary timing, separate replays capture actual reconstructed scores,
+ranked IDs/scores, newest-adjusted IDs, causal IDs/scores, and fetched K/V.
+They require byte equality between the full-ranking oracle and partial selection,
+plus exact attention weights/outputs, residuals, logits, and frozen codebooks.
+The matching Phase 3B per-step quality records must reproduce exactly. The
+established dense/Hugging Face and 100% attention/logit tolerances are unchanged.
+
+Each measured path receives one complete uninstrumented 31-step warmup. The
+Phase 4 component scopes and coarse runner timers remain unchanged. Mode order
+is reversed on the second fixture. The result reports ranking-only and
+ranking-plus-ID-handling distributions, component-summed retrieval overhead,
+coarse retrieval overhead, and whole decode steps. Synthetic scaling,
+reconstructed-score budget sensitivity, tie diagnostics, PyTorch operator and
+allocation profiles, and cProfile replays run outside primary measurements.
+
+The full stable-ranking oracle is available without changing the root API:
+
+```python
+from kvweave.indexes.pq.selection import PQRankingMode, pq_ranking_mode
+
+with pq_ranking_mode(PQRankingMode.FULL_SORT):
+    selection = index.search(query, budget)
+```
+
+The full oracle remains the default: the Phase 5B 50% integrated performance
+gate failed. `PQRankingMode.PARTIAL` explicitly selects the experimental path. Modes
+are scoped to the current context and restored on exit. The original full
+stable sort remains the full-budget implementation in both modes.
+
+A model-download-free selection/scaling run is also available:
+
+```bash
+mise run bench:phase5b-pq-partial-selection -- \
+  --scaling-only --output benchmarks/results/phase5b-pq-ranking-scaling.json
+```
+
+Detailed results default to the gitignored
+`benchmarks/results/pythia-410m-phase5b-pq-partial-selection.json`. These new
+artifacts refuse overwrite; use a distinct output path for a repeat. Profiler
+traces live under `benchmarks/results/profile/pythia-410m-phase5b/`; use a distinct
+`--profile-directory` when retaining multiple runs. The report records commit,
+dirty state, environment differences from Phase 4, raw timings, correctness
+hashes, and analytical tensor payload/traffic estimates. Such estimates are
+neither allocator peaks nor measured hardware bandwidth. See
+[the research record](../docs/RESEARCH.md) for the measured result and limitations.
+
+The separately reproducible candidate comparison uses all layers at decode
+steps 1/16/31 on both fixtures, with the same pinned 50% PQ state:
+
+```bash
+mise run bench:phase5b-pq-partial-selection -- --prototypes-only
+```
+
+It writes `benchmarks/results/phase5b-pq-prototypes.json` and compares the full
+oracle with threshold Top-K, threshold kthvalue, integer-priority selection,
+and sorted-Top-K integer tie repair. These are ranking-only replays; the
+primary integrated matrix remains the promotion gate.

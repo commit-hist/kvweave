@@ -7,6 +7,7 @@ separate so that attribution and licensing remain explicit.
 ## Contents
 
 - [Public-preview provenance and dependency audit](#public-preview-provenance-and-dependency-audit)
+- [Phase 5B deterministic PQ selection](#pythia-410m-phase-5b-deterministic-pq-partial-selection)
 - [Phase 5A incremental Quest metadata](#pythia-410m-phase-5a-exact-incremental-quest-metadata)
 - [Phase 4 profiling](#pythia-410m-phase-4-reference-decode-profiling)
 - [Phase 3B stateful decode](#pythia-410m-phase-3b-autoregressive-decode-validation)
@@ -51,6 +52,289 @@ software: studying a paper or depending on an installed package does not by
 itself add that project's text to KVWeave's `NOTICE`. Any future vendoring,
 source adaptation, or binary redistribution requires a new file-by-file notice
 and license audit.
+
+## Pythia-410M Phase 5B deterministic PQ partial selection
+
+### Decision and scope
+
+**Exactness passed; the required integrated performance gate failed.** Keep
+full stable ranking as the default. The deterministic partial selector remains
+an internal, explicitly selectable experiment. This is a negative optimization
+result, not a speedup claim or a reason to weaken deterministic ties. Phase 5A
+Quest remains the accepted, unchanged baseline.
+
+Phase 4 measured approximately 15.8 ms per decode step for PQ ranking plus
+candidate-ID handling, about 28% of retrieval overhead, almost independent of
+50% versus 100% budget. Phase 5B investigated only selection from the already
+reconstructed `[B,H,S]` PQ score tensor. Training, encoding, codebooks, frozen
+append, LUT construction, score reconstruction/precision, budgets, newest-token
+policy, causal ordering, storage, attention, and GPT-NeoX integration were not
+changed. Neither were shared interfaces, root exports, licensing, or upstream
+provenance. All new selection code is independently written ordinary PyTorch.
+
+### Method and retained oracle
+
+`kvweave.indexes.pq.selection.full_stable_ranking` retains the original
+`torch.argsort(scores, dim=-1, descending=True, stable=True)` expression unchanged.
+The existing first-K slice and original-score gather remain in `PQIndex.search`.
+`pq_ranking_mode(PQRankingMode.FULL_SORT)` forces this oracle;
+`PQRankingMode.PARTIAL` forces the experimental selector. The context manager
+restores the prior mode, including after exceptions, without adding constructor
+arguments or root API exports. The default is **FULL_SORT**.
+
+The retained partial method is:
+
+1. Use unsorted `torch.topk` values only; their minimum gives the Kth threshold.
+2. Mark every score strictly above that threshold.
+3. Mark threshold ties; an int64 cumulative count in ascending token-ID order
+   admits only the first `K - count_above` tied IDs.
+4. Extract the resulting exactly-K mask with row-major `nonzero`. Candidate IDs
+   are now ascending within every batch/head row.
+5. Gather the original candidate scores, stable-sort those K scores descending,
+   and gather IDs by that order. Equal scores therefore retain ascending IDs.
+
+Arbitrary `topk` tie membership/order is discarded. No score arithmetic, cast,
+epsilon, quantization, or floating composite key is introduced. Signed zeros
+remain tied for membership, and returned scores preserve their original bits.
+For K=S, the partial mode calls the full oracle. K>S remains rejected by the
+existing budget contract. NaN score tensors also fall back to the full oracle,
+preserving its behavior even if finite input arithmetic overflows; infinities
+and signed zeros are covered explicitly.
+
+The PyTorch documentation warns that [topk tied indices are not stable](https://docs.pytorch.org/docs/stable/generated/torch.topk.html)
+and specifies [row-major nonzero ordering](https://docs.pytorch.org/docs/stable/generated/torch.nonzero.html).
+These primitive properties are supplemented by exact tests on the pinned
+PyTorch environment; no native implementation source was copied.
+
+Three alternatives remain benchmark-only: `kthvalue` thresholding with the
+same deterministic completion; a second Top-K over integer priority/token-ID
+keys; and sorted Top-K with boundary membership repair followed by sorting
+integer equal-score-group/token-ID keys. The last method uses integer group
+labels derived from exact equality, not modified floating scores. All tested
+alternatives matched oracle IDs/scores. None established a better required
+integrated result. The simpler threshold implementation is retained for study.
+
+### Correctness and quality evidence
+
+The new ranking suite has **49 passing tests**, including 24 exhaustive
+length/dtype cases: every vector over {-1,0,1} at S=1..6, every legal K, two
+independently ordered heads, and float16/bfloat16/float32/float64. This gives
+48,120 row/budget/dtype comparisons. Nine dedicated adversarial/special-value
+tests include `[1,1,1,1,1]`, `[5,2,5,2,5,2]`, a 200-token threshold tie group,
+signed zeros, infinities, and NaNs. Invalid budgets and noncontiguous tensors
+are covered. All comparisons require exact IDs/order and original score bytes.
+
+Real synthetic PQ tests exercise three B/H/S/D shapes, three M/C settings,
+three queries, and four budgets (12.5%, 25%, 50%, 100%): **108 exact search
+pairs**, checking scores, IDs/order, shapes, all-valid masks, and requested
+candidate counts. Five additional benchmark-helper tests cover tie statistics,
+prototype equivalence, signed-zero detection, and complete tiny-model decode
+capture. The complete offline suite passes **359 tests**, with three model
+checks separately opt-in. Existing PQ correctness and Quest regressions pass.
+
+Before primary timing, actual decode intermediates were captured in untimed
+oracle/partial replays: reconstructed scores, ranked IDs/scores, requested
+candidate counts, newest-adjusted IDs, causal IDs/scores, and fetched K/V.
+Attention weights/outputs, queries, residual streams, logits, and frozen
+codebooks were also checked. Across two fixtures and two budgets, **124 steps,
+2,976 layer steps, and 47,616 head selections** matched exactly. Byte hashes of
+captured stages, attention outputs, residuals, and logits agreed between modes.
+The eight warmup/measured replay comparisons also passed exactly.
+
+The matching Phase 3B per-step records reproduced exactly, including attention
+mass/output error, residual error, logits, KL, Top-1 and Top-5 metrics. At 50%,
+pooled over 62 positions:
+
+| Metric | Oracle and partial |
+| --- | ---: |
+| Top-1 agreement with dense | 0.9677419355 (60/62) |
+| Top-5 overlap | 0.6645161290 |
+| Relative logit error | 0.5143893503 |
+| KL, dense to approximate | 0.0337202705 |
+| Mean attention mass captured | 0.7969964927 |
+| Mean attention-output relative error | 1.2371135973 |
+| Mean residual-stream relative error | 0.3440392400 |
+
+At 100%, attention-output, residual, and logit errors against dense were zero;
+KL was zero and Top-1/Top-5 agreement was one. The established rtol=1e-4,
+atol=1e-5 controls were not relaxed. Dense generation also passed the pinned
+Hugging Face comparison. Free-running generation was not rerun in this
+teacher-forced matrix; no new free-running quality claim is made.
+
+### Environment and primary timing result
+
+The primary run on 2026-09-05 used Apple M1 Max, 64 GiB, macOS 26.6.2 arm64,
+Python 3.11.16, PyTorch 2.13.0, eight intra-op and ten inter-op threads, CPU
+float32 eager execution. No recorded environment field differed from Phase 4.
+Pythia-410M revision was `9879c9b5f8bea9051dcb0e68dff21493d67e9d4f`;
+Transformers 5.15.1 source revision was
+`550d7b3834670483a4df436541272c055dc364bf`.
+
+The fixed matrix used 1,024 prompt tokens, `technical_exposition` / `code_like`,
+32 teacher-forced token positions / 31 retrieval steps, frozen prefill-trained
+M4/C8 codebooks, eight training iterations, and seed zero. Each measured path
+received one complete uninstrumented warmup. The Phase 4 component scopes,
+clock, coarse runner timers, and thread settings were unchanged. Mode order
+was reversed on the second fixture. Initialization and separate diagnostic
+profiles were excluded from primary timing. Each distribution has 62 complete
+24-layer decode-step observations.
+
+All values below are milliseconds, reported as **median / p90 / p95**.
+
+| Budget | Measurement | Full stable oracle | Partial selection |
+| --- | --- | ---: | ---: |
+| 50% | Ranking alone | 15.716 / 16.418 / 16.459 | 16.779 / 17.567 / 17.682 |
+| 50% | Ranking + ID handling | 15.942 / 16.711 / 16.804 | 17.030 / 17.833 / 17.951 |
+| 50% | PQ retrieval component sum | 51.080 / 56.157 / 56.700 | 52.199 / 58.598 / 63.232 |
+| 50% | Whole decode step | 136.319 / 154.913 / 160.806 | 137.182 / 152.232 / 158.731 |
+| 100% | Ranking alone | 15.533 / 16.362 / 16.442 | 15.538 / 16.120 / 16.713 |
+| 100% | Ranking + ID handling | 15.885 / 16.755 / 16.884 | 15.814 / 16.404 / 17.033 |
+| 100% | PQ retrieval component sum | 58.974 / 67.078 / 70.016 | 57.034 / 63.915 / 67.228 |
+| 100% | Whole decode step | 156.510 / 168.600 / 175.211 | 142.861 / 157.178 / 166.888 |
+
+At 50%, ranking saved **-1.062 ms**, a **-6.760% reduction**, with old/new
+speed ratio **0.9367x**. Including ID handling gives -1.087 ms, -6.821%,
+0.9361x. PQ retrieval increased 1.119 ms (2.190%), and decode increased
+0.863 ms (0.633%). Coarse retrieval (update + search/policy + fetch, including
+validation/dispatch outside component scopes) also regressed:
+56.788 to 58.042 ms median. The optimization did not survive integration.
+
+At 100%, ranking saved -0.00475 ms (-0.0306%, 0.9997x), effectively unchanged.
+Both modes execute the same full sort. The apparent retrieval/decode reductions
+at 100% therefore **cannot be attributed to partial selection**; they expose
+non-ranking timing variation. Outliers, allocator state, CPU scheduling,
+thermal state, and independent replay ordering were not isolated. The same
+caution applies to small cross-run differences and to generalizing the 50%
+negative result. No statistically independent multi-machine claim is made.
+
+### Budget sensitivity and synthetic scaling
+
+On the final-step, layer-12 real reconstructed score samples, partial ranking
+was 0.262–0.269 ms at 12.5%, 0.350–0.378 ms at 25%, and 0.546–0.576 ms at
+50%; full ranking was roughly 0.58–0.63 ms. Thus smaller K reduces isolated
+ranking cost, with approximately 54–57% and 39–42% reductions at the two
+smaller budgets. These are hot ranking replays, not integrated decode results.
+The full 50% matrix contradicts treating a representative-layer microbenchmark
+as sufficient evidence for promotion.
+
+The deterministic synthetic matrix covers B/H=(1,16) and (2,4), S=512, 2,048,
+8,192, 32,768, all four budgets, continuous and duplicated scores, plus
+reconstructed PQ scores at three M/C/H/S configurations and three queries.
+Five warmups precede 51 measurements per method, with seed-zero shuffled
+method order inside each repetition. All compared IDs/scores match exactly.
+Representative B=1,H=16 continuous-score median old/new ratios were:
+
+| S | 12.5% | 25% | 50% | 100% |
+| ---: | ---: | ---: | ---: | ---: |
+| 512 | 2.062x | 1.716x | 1.048x | 0.997x |
+| 2,048 | 2.428x | 1.740x | 1.205x | 0.999x |
+| 8,192 | 1.223x | 0.759x | 0.659x | 1.009x |
+| 32,768 | 1.259x | 1.097x | 1.048x | 1.003x |
+
+This is not monotonic evidence of an asymptotic speedup. Explicit work consists
+of full-score scans/masks/prefix counts, native `topk`, and stable sorting of K
+candidates. PyTorch's shape-dependent threading/native implementation and
+observed timing variability matter; no formal linear-time guarantee for
+`topk`, hardware-bandwidth result, or long-context inference claim follows.
+
+A follow-up on 2026-09-07 retained all four candidate methods in the reproducible
+`--prototypes-only` runner. It compares actual 50% decode scores across all 24
+layers at steps 1/16/31 of both fixtures, with five warmups and 31 shuffled
+replays. The threshold approach remained the strongest simple candidate in
+most samples, but lost to full ranking on `code_like` step 1. The sorted-Top-K
+integer tie-repair alternative did not beat full ranking in any of those six
+samples. This does not overturn the integrated negative result.
+
+### Exact ties, allocations, traffic, and remaining costs
+
+Every recorded search and every head row contained an exact score tie. Every
+search contained a head with a tied Kth score. At 50%, **93.065% of rows** had a
+tied boundary score and **69.577%** cut a tie group across K/K+1. Every search
+had at least one such cut. Tied groups had median size 3, mean 3.885, and maximum
+270. The 50% boundary group had median 4, mean 6.317, and maximum 137. At 100%,
+60.198% of rows had a tied lowest score, but no tie was cut. Tie repair cannot
+be omitted as a rare-case optimization in these workloads.
+
+For B=1,H=16,S=1,055,K=528, the unchanged float32 score tensor is 67,520 bytes.
+The full oracle materializes 135,040 bytes of ranked int64 IDs and a full
+67,520-byte sort-value payload; the returned K view retains the full ID storage.
+The partial result retains only 67,584 ID bytes, but introduces more temporary
+payloads: Top-K values/unused indices (33,792/67,584 bytes), a 64-byte threshold,
+full masks (16,880 bytes each), a 135,040-byte int64 prefix count, a 135,168-byte
+nonzero coordinate tensor, and additional K-score/order/ID tensors. Final
+selected scores occupy 33,792 bytes in both paths. Native workspaces, bool-to-int
+conversions, and allocator reuse prevent interpreting these operation payloads
+as an additive peak-live-memory total. No overall allocation reduction was
+established; all per-operation estimates and profiler records are retained.
+
+The partial path explicitly scans original scores at least four times (NaN,
+Top-K, greater-than, equality), versus at least one full-sort input read. Its
+logical lower bound for those reads is 270,080 versus 67,520 bytes in this
+example, excluding sort/selection internal passes. It writes K Top-K indices,
+2K nonzero coordinates, K sort indices, and K final IDs, whereas the full path
+writes S ranked IDs. Both gather final K scores; partial selection additionally
+gathers K scores for candidate sorting. Masks and prefix counts add full-length
+traffic. These are logical tensor accesses, not measured DRAM/cache traffic.
+
+In the separate 50% layer-12 ranking profile, selected-candidate sorting cost
+about 0.275 ms/call, `topk` 0.134 ms, and `nonzero` 0.047 ms. cProfile attributed
+about 7.0% of partial-selector time to Python source self time, versus 0.34%
+for the full oracle. Small tensor operations and dispatch are material, but
+Python alone is not dominant; native selected sorting remains the largest
+component. This isolated profile cannot partition the entire integration loss.
+
+The primary partial-mode 50% retrieval bottlenecks remain ranking/ID handling
+(17.030 ms), storage fetch (10.721), frozen append (10.286), causal ordering
+(5.334), newest-token handling (5.196), reconstruction (2.293), and LUT work
+(1.086). None of those other components was optimized.
+
+### Reproducibility and next decision
+
+The primary gitignored artifact is
+`benchmarks/results/pythia-410m-phase5b-pq-partial-selection.json` (86,319,084
+bytes; SHA-256 `39a45dc4f446743b2d26a49499981cd9dab03c81b792bc7983768669fa7785d8`).
+It records base commit `6f8c719776835585bb7738e2c4bf6b20a9744f50` with dirty
+state, complete environment, old/new raw component and coarse timings,
+correctness hashes, quality, ties, scaling, profiles, and allocation/traffic
+estimates. The measured modes were explicit; restoring the oracle default
+subsequently did not alter either measured algorithm. The later prototype
+artifact is `benchmarks/results/phase5b-pq-prototypes.json`. Neither results,
+model data, nor profiler traces are committed. Commands and artifact controls
+are in `benchmarks/README.md`.
+
+Local validation completed with `mise run fmt`, `mise run lint`, the complete
+`mise run test` suite, `mise run bench:pq`, `mise run bench:quest`, and
+`mise run package`. The opt-in command was:
+
+```bash
+mise exec -- pants --no-pantsd --test-output=all test \
+  tests/integration/test_pythia_real_model.py \
+  tests/integration/test_pythia_decode.py -- -m model_download
+```
+
+All three model tests passed. The PQ reference benchmark completed 45 matrix
+rows (15 full-budget controls); Quest completed 32 matrix rows (eight
+full-budget controls) plus its ragged-mask regression. The built wheel and
+sdist contain the new selection module and no generated results. A fresh
+Python 3.11.16 temporary environment with the built wheel, PyTorch 2.13.0, and
+packaging 26.3 passed `python -I scripts/check_wheel.py --project pyproject.toml`,
+including installed metadata and BruteForce/Quest/PQ retrieval. `git diff
+--check` passed. Hosted CI is a separate PR validation gate.
+
+Success criteria 1–6 and 10 passed: deterministic IDs/order, search/decode
+identity, full-budget correctness, unchanged partial quality, and no shared
+redesign. Criteria 7–8 failed at the required integrated 50% budget: ranking
+and retrieval did not improve. Whole-decode non-improvement is reported and
+explained rather than hidden by the misleading full-budget timing variation.
+**Not all Phase 5B success criteria were met.**
+
+A separately reviewed next PQ experiment could run this same retained selector
+through pinned 12.5%/25% decode matrices with exact oracle equivalence and
+quality controls, testing whether the larger isolated savings survive
+integration. This does not authorize changing retrieval budgets or policy.
+This run does not justify starting another PQ component optimization or a
+C++/Rust/GPU selector implementation. Additional backend-specific evidence
+would be needed. No next PQ optimization or Quest Phase 5C work was started.
 
 ## Pythia-410M Phase 5A exact incremental Quest metadata
 

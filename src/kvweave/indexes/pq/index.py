@@ -12,6 +12,7 @@ from kvweave.indexes.pq.reference import (
     score_pq_codes,
 )
 from kvweave.profiling import profile_component
+from kvweave.indexes.pq.selection import rank_pq_candidates
 
 
 class PQIndex:
@@ -60,12 +61,7 @@ class PQIndex:
         with torch.no_grad():
             scores = score_pq_codes(query, metadata)
             with profile_component("pq.search.ranking"):
-                ranked_indices = torch.argsort(
-                    scores,
-                    dim=-1,
-                    descending=True,
-                    stable=True,
-                )
+                ranked_indices = rank_pq_candidates(scores, budget)
             with profile_component("pq.search.token_id_handling"):
                 top_indices = ranked_indices[..., :budget]
                 top_scores = torch.gather(scores, dim=-1, index=top_indices)

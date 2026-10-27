@@ -21,7 +21,9 @@ Phases 0–3 validated research provenance, synthetic Quest/PQ behavior, shared
 interfaces, real Pythia activations, and stateful multi-token decode. Phase 4
 completed profiling of that unchanged path. Phase 5A then validated exact
 incremental Quest metadata maintenance as the first narrow optimization
-experiment; other Quest and PQ optimization remains future work. All current
+experiment. Phase 5B validated deterministic PQ partial-selection equivalence
+but failed its integrated 50% performance gate; full stable PQ ranking remains
+the default. Further optimization remains future work. All current
 timing and approximation results remain correctness/diagnostic evidence, not
 production-runtime, speedup, or general model-quality claims.
 
@@ -1239,6 +1241,21 @@ selection, attention, residual, and logit equivalence. Same-run metadata,
 retrieval, and total-decode medians improved, with absolute timing drift against
 the historical Phase 4 artifact explicitly retained as a limitation. No shared
 interface or root public API changed.
+
+## Phase 5B — Deterministic PQ partial selection (experiment complete)
+
+An internal partial selector obtains a Top-K threshold, admits all greater
+scores and the lowest token IDs among boundary ties, then stable-sorts only
+those K candidates. Score reconstruction and downstream policies are unchanged.
+The original full stable sort remains the oracle and the default. Full-budget
+partial mode also uses that oracle. Modes are scoped within the experimental
+PQ module; no shared interface, integration, or root API changed.
+
+Exact unit/search/decode and quality gates passed, but the required 50%
+integrated matrix showed higher ranking and retrieval latency. The partial
+path is retained for reproducible study, not promoted as an optimization.
+Smaller-budget microbenchmark gains do not establish an integrated benefit.
+See `docs/RESEARCH.md` for the negative result, allocation costs, and limitations.
 
 ## Phase 5 — Further optimization (future; not started)
 

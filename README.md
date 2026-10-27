@@ -152,8 +152,10 @@ mise run lint
   bottlenecks. It did not implement an optimization or establish a speedup.
 - **Phase 5A:** validated exact incremental Quest metadata maintenance as a
   narrow optimization experiment. All oracle selections and decode outputs
-  remained bit-exact in the pinned matrix; broader Quest and PQ optimization
-  has not begun.
+  remained bit-exact in the pinned matrix.
+- **Phase 5B:** deterministic PQ partial selection matched the full-ranking
+  oracle exactly, but failed the integrated 50% performance gate. Full stable
+  ranking remains the default; partial selection is an internal experiment.
 
 See [DESIGN.md](DESIGN.md) for the architecture and phase plan,
 [docs/RESEARCH.md](docs/RESEARCH.md) for detailed evidence and provenance, and
@@ -183,8 +185,8 @@ Near-term research directions, without dates or promised outcomes:
 
 - evaluate any further narrow Quest experiment separately against the next
   measured bottleneck while preserving all correctness and quality controls;
-- run the independently scoped Phase 5B PQ experiment only after its own
-  protocol is reviewed;
+- review a separate smaller-budget PQ selection experiment against the
+  Phase 5B negative result before any further optimization;
 - validate longer-context models and additional hardware configurations; and
 - evaluate additional hardware backends only when profiling supports them.
 

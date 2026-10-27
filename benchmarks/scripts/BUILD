@@ -49,3 +49,8 @@ pex_binary(
     name="phase5a_quest_incremental",
     entry_point="phase5a_quest_incremental.py",
 )
+
+pex_binary(
+    name="phase5b_pq_partial_selection",
+    entry_point="phase5b_pq_partial_selection.py",
+)
